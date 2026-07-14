@@ -1,0 +1,39 @@
+# --- Secrets & credentials ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+credentials.json
+
+# --- Claude Code (personal/local config) ---
+.claude/settings.local.json
+
+# --- Node.js ---
+node_modules/
+npm-debug.log*
+
+# --- Python ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# --- Build output ---
+dist/
+build/
+
+# --- Logs & databases ---
+*.log
+*.sqlite
+
+# --- OS junk ---
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# --- IDE ---
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
