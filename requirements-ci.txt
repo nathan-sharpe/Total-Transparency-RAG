@@ -1,0 +1,6 @@
+# Adds the CPU embedding profile (EMBEDDING_PROFILE=sentence-transformers)
+# on top of the base requirements. Split out because sentence-transformers
+# pulls in torch — heavy, and only needed by CI (Phase 5) or when testing
+# the CI profile locally.
+-r requirements.txt
+sentence-transformers==5.6.0

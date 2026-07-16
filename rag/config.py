@@ -54,6 +54,25 @@ class Settings(BaseSettings):
     embedding_model: str | None = None
     embedding_dimension: int | None = None
 
+    # Retrieval
+    top_k: int = 5
+
+    # Generation model + resource guardrails (guardrail 4: every LLM call site
+    # has a timeout, a cap on chunks fed in, and an output token limit)
+    generator_model: str = "llama3.1:8b"
+    generator_temperature: float = 0.0
+    generation_timeout_seconds: float = 120.0
+    embed_timeout_seconds: float = 60.0
+    max_context_chunks: int = 5
+    max_output_tokens: int = 512
+
+    # Input guardrail (guardrail 1): enforced by the API request model
+    max_query_chars: int = 2000
+
+    # API server (uvicorn) bind address, used by `python main.py`
+    api_host: str = "127.0.0.1"
+    api_port: int = 8000
+
     @property
     def resolved_embedding_model(self) -> str:
         return self.embedding_model or EMBEDDING_PROFILES[self.embedding_profile]["model"]

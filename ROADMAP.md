@@ -105,6 +105,33 @@ These choices are made in Phase 0/1 specifically because a later phase depends o
 
 **Forward hooks:** retrieval and generation callable as plain functions (eval scripts import them); scores returned (threshold tuning); citations requested (grounding checks); `--limit` (CI).
 
+### Phase 1 — Implementation notes (completed 2026-07-15)
+
+Built in the locked order (loader → chunker → embedder → ingest → retrieval → generation → API). All 36 unit tests pass, ruff clean, and the whole pipeline was exercised against the real corpus and live local models.
+
+**New pinned dependencies:** `httpx==0.28.1` (Ollama client + dataset download), `fastapi==0.139.0`, `uvicorn==0.51.0`. `sentence-transformers==5.6.0` (drags in `torch==2.13.0`) is split into a separate **`requirements-ci.txt`** (`-r requirements.txt` + the one extra line) rather than the base file — the Ollama path never needs torch, and CI (Phase 5) is the only consumer of the CPU profile. Installing it locally is only needed to test that profile.
+
+**Loader (`rag/datasets.py`):** SciFact is **5,183 documents**. Downloads BEIR's zip via a `.part` temp file so an interrupted download never looks complete; `corpus.jsonl` existing is the idempotency marker. `Document(doc_id, title, text)` NamedTuple; `DATASETS` registry maps CLI names to loaders (NFCorpus later = one function + one entry). `_id` is coerced to `str` because chunk IDs are strings.
+- **Gotcha (carried forward from the eventual Phase 4/CI notes):** stdlib `urllib` fails TLS on this Windows host (`CERTIFICATE_VERIFY_FAILED` — Windows Python doesn't use certifi's CA bundle). Switched the download to `httpx`, which verifies against certifi automatically. Anything else reaching the network from Python on this host should use `httpx`, not `urllib`.
+
+**Chunker (`rag/chunking.py`):** sizes measured in **words, not tokens** (no tokenizer dependency, deterministic, ~1.3 tokens/word). Defaults `CHUNK_SIZE=200`, `CHUNK_OVERLAP=40`. Ingestion feeds it `f"{title}\n\n{text}"` so titles are searchable — that composition lives in `ingest.py`, not the chunker. Full corpus → **8,104 chunks** (~48% single-chunk, ~47% two-chunk, a long tail up to 10) — the overlap machinery genuinely exercises despite short abstracts.
+
+**Embedder (`rag/embedding.py`):** `embed_documents` / `embed_query` are split because nomic-embed-text is asymmetric — it needs the `search_document: ` / `search_query: ` task prefixes applied at embed time (Ollama does not add them; omitting them hurts retrieval). Those prefixes are nomic-specific, flagged for revisit if `EMBEDDING_MODEL` is overridden. `OllamaEmbedder` uses the batch `/api/embed` endpoint and validates returned dimension against the profile. `OllamaEmbedder.__init__` accepts an injectable `httpx` transport purely so unit tests mock it with `httpx.MockTransport` (no server).
+
+**Ingestion (`ingest.py`):** connection is `autocommit=True` with an explicit `conn.transaction()` per document, so the resume SELECTs don't hold a transaction open between docs while each document's chunks stay all-or-nothing. `ingestion_meta` is written once via `INSERT ... ON CONFLICT (id) DO NOTHING`. `httpx`'s per-request INFO logging is silenced to WARNING (thousands of embed calls). **Throughput: ~10.3 docs/s, full corpus in ~504s (~8.5 min)** — embedding-bound on the RTX 4050. `--limit` re-run confirmed idempotency (50 docs → all skipped, 0 written).
+
+**Retrieval (`rag/retrieval.py`):** cosine via pgvector `<=>` (distance), similarity reported as `1 - distance`. `verify_corpus_compatible()` is the query-path half of the mismatch guard Phase 0 built into `ensure_schema` — it's called at API startup (fail fast), not per query. First query pays a ~2s cold-embed cost; warm queries are sub-second.
+
+**Generation (`rag/generation.py`):** prompt is **eval-sensitive** — labels each chunk by ID, asks for `[chunk_id]` citations, and mandates an exact refusal string. This format is frozen as the baseline; changing it later is a measured experiment, not an edit. Guardrail 4 (timeout / chunk cap / token limit) is enforced here from settings. Citation extraction is a regex over `{doc_id}::{index}`, deduped in first-mention order. Verification of citations is deferred to Phase 3 as planned.
+
+**API (`main.py`):** thin. Guardrail 1 (empty rejection + length cap) is a Pydantic `field_validator` that reads the limit from settings at request time. Embedder is built once in the `lifespan` startup, which also runs `verify_corpus_compatible`. Global exception handler returns `{error, error_id}` and logs the trace under that id.
+
+**Live end-to-end sanity checks (not automated — they need Ollama + an ingested corpus):**
+- "gut microbial diversity vs. arterial stiffness" → top chunk `13714201::0` at **0.910**, grounded answer citing `[13714201::0]`. Verified identically through `POST /query`.
+- A vaguer query ("does a high-fat diet affect the gut microbiome?") retrieved related-but-not-specific chunks (top 0.78) and the model returned the exact refusal string. Encouraging for the Phase 2 no-answer threshold — refusal behavior already emerges from the prompt, and the score gap (0.91 answerable vs. 0.78 refused) is roughly where guardrail 2's threshold will live.
+
+**Deferred / for later phases:** generation quality is unmeasured until the Phase 2 golden set and Phase 3 judge exist — the two anecdotes above are smoke tests, not evidence. `all-MiniLM-L6-v2` (CI profile) is installed and dimension-checked but not yet run through ingestion end to end; that happens in Phase 5.
+
 ---
 
 ## Phase 2 — Golden set and hand-built retrieval metrics
