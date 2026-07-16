@@ -4,7 +4,7 @@ Reference document compiled from planning discussions, July 2026. Intended use: 
 
 ## Purpose and positioning
 
-The project exists to fill identified portfolio gaps: public code footprint and Python-level engineering evidence (gap 1), formal evaluation methodology (gap 2), and production operations depth (gap 5). It is a public, Python-first RAG system that demonstrates the patterns behind prior client work (Commodoor) in verifiable, open form.
+The project exists to fill identified portfolio gaps: public code footprint and Python-level engineering, formal evaluation methodology, and production operations depth. It is a public, Python-first RAG system that demonstrates the patterns behind prior client work in verifiable, open form.
 
 Strict rule: zero n8n in the implementation. Everything runs through code. The README gets one section comparing the code-first architecture to an n8n implementation and when each is the right choice, turning the n8n background into demonstrated architectural judgment rather than something being compensated for.
 
