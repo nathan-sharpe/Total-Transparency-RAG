@@ -5,6 +5,7 @@ pydantic-settings). No other module reads os.environ directly.
 """
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -36,6 +37,16 @@ class Settings(BaseSettings):
 
     # Logging
     log_level: str = "INFO"
+
+    # Datasets: downloads land under data_dir (gitignored)
+    data_dir: Path = Path("data")
+    scifact_url: str = (
+        "https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/scifact.zip"
+    )
+
+    # Chunking, measured in words — see rag/chunking.py for why words, not model tokens
+    chunk_size: int = 200
+    chunk_overlap: int = 40
 
     # Embedding: the profile picks sensible defaults; the explicit fields
     # override them when set (used by experiments, never required).
