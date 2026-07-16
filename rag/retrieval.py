@@ -26,6 +26,16 @@ class RetrievedChunk:
     score: float  # cosine similarity: 1.0 = same direction, 0.0 = orthogonal
 
 
+def is_answerable(chunks: list[RetrievedChunk], threshold: float) -> bool:
+    """Guardrail 2 decision: does retrieval clear the no-answer bar?
+
+    True iff at least one chunk came back and the best one's similarity is at
+    or above the threshold. Pure and side-effect-free so it unit-tests without
+    a database; the query flow (main.py) uses it to refuse before generating.
+    """
+    return bool(chunks) and chunks[0].score >= threshold
+
+
 def verify_corpus_compatible(conn: psycopg.Connection, embedder: Embedder) -> None:
     """Refuse a query-time embedder that mismatches the ingested corpus —
     similarities between vectors from different models are garbage, silently."""

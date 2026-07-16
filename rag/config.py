@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     # Retrieval
     top_k: int = 5
 
+    # Guardrail 2 (no-answer path): if the best retrieved chunk's cosine
+    # similarity is below this, the query flow returns an honest refusal
+    # WITHOUT calling the generator. Initial value — refined by the Phase 2
+    # out-of-domain experiment and Phase 6 threshold sweep (see EVALS.md).
+    no_answer_threshold: float = 0.6
+
     # Generation model + resource guardrails (guardrail 4: every LLM call site
     # has a timeout, a cap on chunks fed in, and an output token limit)
     generator_model: str = "llama3.1:8b"

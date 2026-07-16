@@ -18,8 +18,8 @@ from pydantic import BaseModel, field_validator
 from rag import db
 from rag.config import get_settings
 from rag.embedding import get_embedder
-from rag.generation import generate_answer
-from rag.retrieval import retrieve, verify_corpus_compatible
+from rag.generation import NO_ANSWER_RESPONSE, generate_answer
+from rag.retrieval import is_answerable, retrieve, verify_corpus_compatible
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -80,15 +80,23 @@ def query(request: QueryRequest) -> QueryResponse:
     settings = get_settings()
     with db.connect(settings) as conn:
         chunks = retrieve(conn, app.state.embedder, request.query, settings=settings)
+    sources = [
+        SourceChunk(chunk_id=c.chunk_id, doc_id=c.doc_id, score=c.score, text=c.text)
+        for c in chunks
+    ]
+
+    # Guardrail 2 (no-answer path): if retrieval didn't clear the threshold,
+    # refuse honestly and skip the generator entirely — no LLM call, no risk of
+    # a confidently wrong answer grounded in irrelevant chunks.
+    if not is_answerable(chunks, settings.no_answer_threshold):
+        top = chunks[0].score if chunks else 0.0
+        logger.info(
+            "no-answer: top score %.4f below threshold %.2f", top, settings.no_answer_threshold
+        )
+        return QueryResponse(answer=NO_ANSWER_RESPONSE, citations=[], sources=sources)
+
     result = generate_answer(request.query, chunks, settings=settings)
-    return QueryResponse(
-        answer=result.answer,
-        citations=result.cited_chunk_ids,
-        sources=[
-            SourceChunk(chunk_id=c.chunk_id, doc_id=c.doc_id, score=c.score, text=c.text)
-            for c in chunks
-        ],
-    )
+    return QueryResponse(answer=result.answer, citations=result.cited_chunk_ids, sources=sources)
 
 
 @app.get("/health")

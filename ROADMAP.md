@@ -155,6 +155,22 @@ Built in the locked order (loader → chunker → embedder → ingest → retrie
 
 **Demo:** `python evals/run_retrieval.py` prints baseline numbers; EVALS.md shows them with methodology.
 
+### Phase 2 — Implementation notes (completed 2026-07-16)
+
+Built the eval harness under `evals/` (new package, imports `rag/` directly — never HTTP) plus guardrail 2. All 56 unit tests pass (20 new), ruff clean.
+
+**Golden set (`evals/golden.py`):** the test split is the join of `qrels/test.tsv` (query-id → relevant corpus-ids, score-filtered) with `queries.jsonl` (id → text) — **300 queries**. `queries.jsonl` holds all 1,109 train+test queries; a query belongs to a split iff it appears in that split's qrels, so the join *is* the split filter. `GoldenQuery` keeps `relevant_doc_ids` as a list even when singleton (per the locked design decision). Results are sorted numeric-ascending by query id for reproducibility. Also carries `OUT_OF_DOMAIN_QUERIES` — 8 hand-authored off-topic queries (no relevant doc) for the no-answer measurement.
+
+**Metrics (`evals/metrics.py`):** pure functions over `(ranked_ids, relevant_ids)` — `recall_at_k`, `reciprocal_rank`, plus `mean_recall_at_k` / `mrr` aggregators. The **credit rule** (chunk relevant iff its `doc_id` ∈ golden list) lives in the *runner*, which feeds each chunk's `doc_id` in rank order into these generic functions; keeping the math ID-agnostic is what lets it be unit-tested against tiny hand-computed fixtures. **`k` is counted in chunks, not documents** — documented in EVALS.md as the reviewer-facing methodological choice.
+
+**Runner (`evals/run_retrieval.py`):** retrieves `RETRIEVE_K=10` chunks per query (covers both recall@5 and recall@10 in one call), writes `evals/results/retrieval.json` (metrics + full config snapshot — the Phase 5 CI gate parses this) and prints a summary. Silences `rag.retrieval`'s per-query INFO line to WARNING for the run. A `sys.path` bootstrap supports both `python evals/run_retrieval.py` (the roadmap demo command, which otherwise puts `evals/` rather than the repo root on the path) and `python -m evals.run_retrieval`.
+
+**Baseline (Ollama profile, chunk 200/40):** recall@5 **0.5535**, recall@10 **0.6024**, MRR **0.4671** over 300 queries in ~31s. The recall@5→@10 gap is only ~5 points, so most gettable docs are already in the top 5.
+
+**Guardrail 2 (no-answer path):** `no_answer_threshold` added to config (initial **0.60**); `is_answerable(chunks, threshold)` — a pure function in `rag/retrieval.py` — is wired into `main.py`'s `/query` so a below-threshold top score returns the canonical refusal **without calling the generator** (sources still returned). The refusal string was extracted into `NO_ANSWER_RESPONSE` in `generation.py` and reused both in the (frozen, eval-sensitive) system prompt and by the guardrail, so both layers refuse in identical wording — a lock test asserts the exact string stays in the prompt. **Measured first changelog entry in EVALS.md:** at 0.60 the gate refuses 6/8 out-of-domain queries with **0/300** in-domain false refusals. All 300 in-domain queries cleared 0.60, so the threshold has headroom — tuning it to catch the last 2 OOD queries without inducing false refusals is deferred to the Phase 6 threshold sweep.
+
+**Deferred as planned:** nDCG (noted, not built); threshold tuning (Phase 6); the Phase 5 CI gate will parse the JSON this phase produces.
+
 ---
 
 ## Phase 3 — Generation evaluation: LLM-as-judge

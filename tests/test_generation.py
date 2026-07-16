@@ -7,6 +7,7 @@ import httpx
 
 from rag.config import Settings
 from rag.generation import (
+    NO_ANSWER_RESPONSE,
     SYSTEM_PROMPT,
     GeneratedAnswer,
     build_user_prompt,
@@ -36,6 +37,14 @@ def test_extract_citations_dedupes_in_first_mention_order():
 
 def test_extract_citations_none_present():
     assert extract_citations("No citations in this answer.") == []
+
+
+def test_system_prompt_embeds_exact_refusal_string():
+    # Eval-sensitive: the generator's refusal and guardrail 2's pre-generation
+    # refusal must be the same wording, and this exact text is baked into the
+    # frozen prompt. Changing it invalidates EVALS.md baselines.
+    assert NO_ANSWER_RESPONSE == "I can't answer that from the documents I have."
+    assert f"reply exactly: {NO_ANSWER_RESPONSE}" in SYSTEM_PROMPT
 
 
 def test_user_prompt_labels_chunks_by_id():

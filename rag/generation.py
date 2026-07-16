@@ -24,13 +24,19 @@ from rag.retrieval import RetrievedChunk
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """\
+# The one canonical refusal string. The generator is instructed to emit it when
+# the context is insufficient, and guardrail 2 (rag/retrieval.py + main.py)
+# returns this same text when it refuses *before* generation — one wording for
+# "not in my corpus" regardless of which layer produced it.
+NO_ANSWER_RESPONSE = "I can't answer that from the documents I have."
+
+SYSTEM_PROMPT = f"""\
 You are a careful assistant answering questions about scientific literature.
 Answer using ONLY the context chunks provided. Follow these rules:
 - After each claim, cite the chunk ID that supports it in square brackets, e.g. [4983::0].
 - Cite only chunk IDs that appear in the context.
 - If the context does not contain the information needed to answer, reply exactly: \
-I can't answer that from the documents I have.
+{NO_ANSWER_RESPONSE}
 - Be concise: a short paragraph at most."""
 
 # Chunk IDs are {doc_id}::{chunk_index}; matched anywhere in the answer so
