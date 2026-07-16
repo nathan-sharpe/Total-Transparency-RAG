@@ -1,7 +1,9 @@
 # --- Secrets & credentials ---
 .env
 .env.*
-!.env.example
+# The tracked template is env.example (no leading dot) so it never matches the
+# .env.* deny rules above — real secret files stay ignored, the template does not.
+!env.example
 *.pem
 *.key
 secrets/

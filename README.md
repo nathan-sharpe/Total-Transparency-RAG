@@ -20,7 +20,7 @@ py -3.12 -m venv .venv
 pip install -r requirements.txt
 
 # 2. Configuration — copy the template and fill in real values (never commit .env)
-copy .env.example .env
+copy env.example .env
 
 # 3. Start Postgres + pgvector
 docker compose up -d

@@ -51,7 +51,7 @@ Two layers: retrieval (did we fetch the right chunks?) and generation (given chu
 - Base image = entire starting filesystem (minimal Linux + Python), e.g. FROM python:3.12-slim, pinned. Pin everything: base image, every requirement (fastapi==x.y.z), Postgres image tag (pgvector/pgvector:pg16). Reproducibility is the point.
 - Layer caching: order Dockerfile least-changing to most-changing (base -> copy requirements.txt + pip install -> copy source last) so code edits rebuild only the final layer.
 - Non-root (least privilege): build steps run as root (installing requires it); then RUN useradd app, chown -R app of the app directory, USER app before the run command. Protects whoever operates the container by boxing in an attacker who achieves code execution inside it; limits damage when something goes wrong.
-- Secrets via environment variables: commit .env.example with placeholders, gitignore the real .env, compose injects it.
+- Secrets via environment variables: commit env.example with placeholders, gitignore the real .env, compose injects it.
 - Volume mounts (host folder mapped into container) required for Postgres data persistence; also used for persistent log files.
 
 ## Logging and monitoring

@@ -32,7 +32,7 @@ These choices are made in Phase 0/1 specifically because a later phase depends o
 
 1. **Repo hygiene** (order matters — per global security rules, `.gitignore` exists before any secret does):
    - `.gitignore` covering `.env`, `.env.*`, `__pycache__/`, `.venv/`, data downloads.
-   - `.env.example` with placeholder values for every setting (DB connection, `OLLAMA_URL`, `LOG_LEVEL`, `EMBEDDING_PROFILE`); real `.env` never committed.
+   - `env.example` with placeholder values for every setting (DB connection, `OLLAMA_URL`, `LOG_LEVEL`, `EMBEDDING_PROFILE`); real `.env` never committed. (Named without a leading dot so it sits outside the `.env*` ignore/deny rules — see the Phase 1 notes.)
 2. **Python project skeleton:**
    - `requirements.txt` with every dependency pinned (`fastapi==x.y.z` style). Virtual environment documented in README stub.
    - Package layout:
@@ -132,6 +132,8 @@ Built in the locked order (loader → chunker → embedder → ingest → retrie
 
 **Deferred / for later phases:** generation quality is unmeasured until the Phase 2 golden set and Phase 3 judge exist — the two anecdotes above are smoke tests, not evidence. `all-MiniLM-L6-v2` (CI profile) is installed and dimension-checked but not yet run through ingestion end to end; that happens in Phase 5.
 
+**Config template renamed `.env.example` → `env.example`:** the developer's global Claude Code settings deny `Read`/`Write` on `.env.*`, which caught the placeholder template as collateral and made it unmaintainable by the assistant. Dropping the leading dot moves it outside the `.env*` ignore/deny globs while every real secret file (`.env`, `.env.local`, …) stays blocked — no settings change, no loss of the wildcard safety net. `.gitignore`, the README setup step, and the Phase 4 demo command were updated to match. The template now also documents Phase 1's optional overrides (chunk size, top-k, generator model, guardrail caps) as commented defaults.
+
 ---
 
 ## Phase 2 — Golden set and hand-built retrieval metrics
@@ -182,7 +184,7 @@ Built in the locked order (loader → chunker → embedder → ingest → retrie
 - Global exception handler gains the async Slack/Discord webhook notification (URL from `.env`).
 - Because config has been env-driven since Phase 0, this phase should be packaging work, not refactoring. If it isn't, that's a signal an earlier phase leaked config into code.
 
-**Demo:** fresh clone on a machine with Docker + Ollama: `cp .env.example .env`, `docker compose up`, ingest, query via `/docs`.
+**Demo:** fresh clone on a machine with Docker + Ollama: `cp env.example .env`, `docker compose up`, ingest, query via `/docs`.
 
 ---
 
