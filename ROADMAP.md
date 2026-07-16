@@ -60,6 +60,20 @@ These choices are made in Phase 0/1 specifically because a later phase depends o
 
 **Forward hooks:** the vector column dimension is set from the active embedder profile at schema-creation time, not hardcoded — this is what makes the CI embedding profile (Phase 5) a config swap.
 
+### Phase 0 — Implementation notes (completed 2026-07-15, commit `aa54782`)
+
+*Convention established with this phase: when a phase completes, a section like this one is appended to it — what was actually built, decisions made during implementation, and anything later phases should know.*
+
+- **Environment:** Python 3.12.10 was newly installed on the Windows host (via winget) as part of this phase. Dependencies pinned in `requirements.txt`: `pydantic-settings`, `psycopg[binary]` (psycopg **3**, not psycopg2), the `pgvector` Python adapter, `pytest`, `ruff`.
+- **Database access** uses psycopg 3 with `pgvector.psycopg.register_vector`. `rag.db.connect()` runs `CREATE EXTENSION IF NOT EXISTS vector` before registering the type, so a fresh compose-created database self-initializes on first connection — no manual bootstrap step. Schema creation is runnable directly via `python -m rag.db`.
+- **Schema details** beyond the plan:
+  - `ingestion_meta` is a singleton row (`id smallint PRIMARY KEY DEFAULT 1 CHECK (id = 1)`) — one corpus per database, by construction.
+  - `chunks` has an index on `doc_id`, because Phase 1's ingestion idempotency check ("do chunks for this doc exist?") is a `doc_id` lookup.
+  - A pgvector column dimension cannot be a bind parameter, so `vector({dim})` is interpolated into the DDL from validated integer settings — the one sanctioned f-string in a SQL statement.
+- **Landed earlier than planned:** the embedder-mismatch refusal (ROADMAP said "queried at startup" — i.e. Phase 1) already exists in `ensure_schema()`: it raises if `ingestion_meta`'s recorded model/dimension, or the existing `chunks` column dimension (recovered from `pg_attribute.atttypmod`), disagrees with the active profile. Phase 1 still needs to invoke this on the query path, but the check itself is written and tested.
+- **Config shape:** `EMBEDDING_PROFILES` (profile → model + dimension) lives in `rag/config.py`; `EMBEDDING_PROFILE` selects one, and optional `EMBEDDING_MODEL`/`EMBEDDING_DIMENSION` env vars override it for Phase 6 experiments. `get_settings()` is `lru_cache`d — tests that need different settings construct `Settings` explicitly rather than mutating the cache.
+- **Verified:** `docker compose up -d` + `pytest` green, including the smoke test (insert dummy vector, retrieve by similarity) against the real compose database.
+
 ---
 
 ## Phase 1 — Core pipeline: ingest → chunk → embed → retrieve → generate
