@@ -1,0 +1,8 @@
+# Core
+pydantic-settings==2.14.2
+psycopg[binary]==3.3.4
+pgvector==0.5.0
+
+# Dev / test (CI runs these too)
+pytest==9.1.1
+ruff==0.15.21

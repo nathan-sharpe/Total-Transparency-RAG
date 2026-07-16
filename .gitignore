@@ -24,6 +24,9 @@ venv/
 dist/
 build/
 
+# --- Data downloads (SciFact corpus etc.) ---
+data/
+
 # --- Logs & databases ---
 *.log
 *.sqlite

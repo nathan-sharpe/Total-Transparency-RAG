@@ -1,0 +1,26 @@
+services:
+  db:
+    # Pinned tag per project rules; extended with an `api` service in Phase 4.
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      # ${VAR:?...} makes compose fail with a clear message if .env is missing a value,
+      # instead of silently starting a database with no password.
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      # Named volume rather than a host-folder bind mount: Postgres data on a
+      # Windows/NTFS bind mount is slow and permission-fragile. A named volume
+      # still persists across `docker compose down`.
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
