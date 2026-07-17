@@ -33,6 +33,11 @@ data/
 *.log
 *.sqlite
 
+# --- Eval intermediates ---
+# answers.json is the bulky pass-1 safety artifact (full chunk texts) written
+# between the generate and judge passes; the committed result is generation.json.
+evals/results/answers.json
+
 # --- OS junk ---
 Thumbs.db
 Desktop.ini

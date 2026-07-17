@@ -72,6 +72,14 @@ class Settings(BaseSettings):
     max_context_chunks: int = 5
     max_output_tokens: int = 512
 
+    # Judge (Phase 3, Tier-2 evals): deliberately a different model from
+    # generator_model so the generator never scores its own output. Same
+    # resource guardrails as every LLM call site (guardrail 4).
+    judge_model: str = "qwen2.5:7b"
+    judge_temperature: float = 0.0
+    judge_timeout_seconds: float = 120.0
+    judge_max_output_tokens: int = 512
+
     # Input guardrail (guardrail 1): enforced by the API request model
     max_query_chars: int = 2000
 

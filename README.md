@@ -35,4 +35,22 @@ ruff check .
 
 ## Status
 
-Phase 0 (foundations and scaffolding) — see [ROADMAP.md](ROADMAP.md).
+Phase 3 complete — see [ROADMAP.md](ROADMAP.md) for the full phase plan and
+per-phase implementation notes.
+
+- **Phase 0** — foundations: config, schema, Postgres/pgvector via compose.
+- **Phase 1** — core pipeline: ingest → chunk → embed → retrieve → generate, FastAPI on top.
+- **Phase 2** — golden set + hand-built retrieval metrics (recall@k, MRR) + guardrail 2 (no-answer threshold).
+- **Phase 3** — LLM-as-judge generation eval + guardrails 3a (schema-validated judge output) and 3b (citation grounding).
+
+What's runnable now:
+
+```powershell
+python ingest.py --dataset scifact   # batch-ingest the corpus
+python main.py                       # serve the API at http://localhost:8000/docs
+python evals/run_retrieval.py        # Tier-1 retrieval metrics -> evals/results/retrieval.json
+python run_evals.py                  # Tier-2 generation eval (laptop-only) -> evals/results/generation.json
+```
+
+Measured baselines and methodology live in [EVALS.md](EVALS.md). Next up:
+Phase 4 (containerization).

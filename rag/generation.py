@@ -43,12 +43,70 @@ Answer using ONLY the context chunks provided. Follow these rules:
 # bracketed lists like [4983::0, 4983::1] are caught too.
 CITATION_PATTERN = re.compile(r"[\w.-]+::\d+")
 
+# A bracketed group like [4983::0] or [4983::0, 123::1] — the unit that gets
+# rewritten when grounding strips an invalid citation.
+_CITATION_GROUP = re.compile(r"\[([^\[\]]+)\]")
+
 
 @dataclass(frozen=True)
 class GeneratedAnswer:
     answer: str
     cited_chunk_ids: list[str]
     model: str
+
+
+@dataclass(frozen=True)
+class GroundedAnswer:
+    answer: str  # answer text with any ungrounded citation markers stripped
+    grounded_citations: list[str]
+    ungrounded_citations: list[str]
+
+
+def _strip_citations(answer: str, drop: set[str]) -> str:
+    """Remove the given chunk IDs from bracketed citation groups in the answer.
+
+    A bracket that only contained dropped IDs disappears entirely; brackets
+    holding anything that isn't a chunk ID (e.g. "[sic]") are left untouched.
+    """
+
+    def rewrite(match: re.Match) -> str:
+        tokens = [t.strip() for t in match.group(1).split(",")]
+        if not all(CITATION_PATTERN.fullmatch(t) for t in tokens):
+            return match.group(0)  # not a citation group
+        kept = [t for t in tokens if t not in drop]
+        return f"[{', '.join(kept)}]" if kept else ""
+
+    stripped = _CITATION_GROUP.sub(rewrite, answer)
+    # Tidy what a removed bracket leaves behind: doubled spaces, a space
+    # stranded before punctuation.
+    stripped = re.sub(r" {2,}", " ", stripped)
+    stripped = re.sub(r" ([.,;:!?])", r"\1", stripped)
+    return stripped.strip()
+
+
+def ground_citations(
+    answer: str, retrieved_chunk_ids: Sequence[str]
+) -> GroundedAnswer:
+    """Guardrail 3b: verify cited chunk IDs against the retrieved set.
+
+    The prompt *asks* the model to cite only provided chunks; this enforces it
+    in code. Citations pointing outside the retrieved set (hallucinated IDs)
+    are stripped from the answer text and reported separately so the caller
+    can flag them. (Full per-claim faithfulness checking at serve time is the
+    expensive strong version — documented, not built.)
+    """
+    retrieved = set(retrieved_chunk_ids)
+    cited = extract_citations(answer)
+    grounded = [c for c in cited if c in retrieved]
+    ungrounded = [c for c in cited if c not in retrieved]
+    if ungrounded:
+        logger.warning(
+            "ungrounded citations stripped from answer: %s", ", ".join(ungrounded)
+        )
+        answer = _strip_citations(answer, set(ungrounded))
+    return GroundedAnswer(
+        answer=answer, grounded_citations=grounded, ungrounded_citations=ungrounded
+    )
 
 
 def build_user_prompt(query: str, chunks: Sequence[RetrievedChunk]) -> str:

@@ -13,6 +13,7 @@ from rag.generation import (
     build_user_prompt,
     extract_citations,
     generate_answer,
+    ground_citations,
 )
 from rag.retrieval import RetrievedChunk
 
@@ -52,6 +53,40 @@ def test_user_prompt_labels_chunks_by_id():
     assert "[4983::0]\nchunk text 0" in prompt
     assert "[4983::1]\nchunk text 1" in prompt
     assert prompt.endswith("Question: why?")
+
+
+def test_ground_citations_all_valid_leaves_answer_untouched():
+    answer = "Claim [4983::0]. More [4983::1]."
+    grounded = ground_citations(answer, ["4983::0", "4983::1"])
+    assert grounded.answer == answer
+    assert grounded.grounded_citations == ["4983::0", "4983::1"]
+    assert grounded.ungrounded_citations == []
+
+
+def test_ground_citations_strips_hallucinated_bracket():
+    grounded = ground_citations("True [4983::0]. Invented [999::9].", ["4983::0"])
+    assert grounded.answer == "True [4983::0]. Invented."
+    assert grounded.grounded_citations == ["4983::0"]
+    assert grounded.ungrounded_citations == ["999::9"]
+
+
+def test_ground_citations_filters_within_multi_id_bracket():
+    grounded = ground_citations("Claim [4983::0, 999::9].", ["4983::0"])
+    assert grounded.answer == "Claim [4983::0]."
+    assert grounded.ungrounded_citations == ["999::9"]
+
+
+def test_ground_citations_leaves_non_citation_brackets_alone():
+    grounded = ground_citations("Quote [sic] and claim [4983::0].", ["4983::0"])
+    assert grounded.answer == "Quote [sic] and claim [4983::0]."
+    assert grounded.ungrounded_citations == []
+
+
+def test_ground_citations_no_citations():
+    grounded = ground_citations("No citations here.", ["4983::0"])
+    assert grounded.answer == "No citations here."
+    assert grounded.grounded_citations == []
+    assert grounded.ungrounded_citations == []
 
 
 def test_generate_answer_applies_resource_guardrails():

@@ -18,7 +18,7 @@ from pydantic import BaseModel, field_validator
 from rag import db
 from rag.config import get_settings
 from rag.embedding import get_embedder
-from rag.generation import NO_ANSWER_RESPONSE, generate_answer
+from rag.generation import NO_ANSWER_RESPONSE, generate_answer, ground_citations
 from rag.retrieval import is_answerable, retrieve, verify_corpus_compatible
 
 logging.basicConfig(
@@ -72,6 +72,10 @@ class SourceChunk(BaseModel):
 class QueryResponse(BaseModel):
     answer: str
     citations: list[str]
+    # Guardrail 3b: citations the model emitted that don't exist in the
+    # retrieved set. Their markers are stripped from `answer`; they're
+    # surfaced here so a non-empty list flags the response as suspect.
+    ungrounded_citations: list[str] = []
     sources: list[SourceChunk]
 
 
@@ -96,7 +100,15 @@ def query(request: QueryRequest) -> QueryResponse:
         return QueryResponse(answer=NO_ANSWER_RESPONSE, citations=[], sources=sources)
 
     result = generate_answer(request.query, chunks, settings=settings)
-    return QueryResponse(answer=result.answer, citations=result.cited_chunk_ids, sources=sources)
+    # Guardrail 3b (citation grounding): only chunk IDs actually retrieved may
+    # be cited; hallucinated IDs are stripped from the answer and flagged.
+    grounded = ground_citations(result.answer, [c.chunk_id for c in chunks])
+    return QueryResponse(
+        answer=grounded.answer,
+        citations=grounded.grounded_citations,
+        ungrounded_citations=grounded.ungrounded_citations,
+        sources=sources,
+    )
 
 
 @app.get("/health")

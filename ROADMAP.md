@@ -187,6 +187,22 @@ Built the eval harness under `evals/` (new package, imports `rag/` directly — 
 
 **Demo:** `python run_evals.py` produces generation-quality scores; EVALS.md gains a generation baseline section.
 
+### Phase 3 — Implementation notes (completed 2026-07-17)
+
+Built the second eval tier: a hand-rolled LLM-as-judge plus guardrails 3a/3b. Decision on RAGAS vs. hand-rolled: **hand-rolled**, consistent with the project's "hand-build core logic" rule — the loop is rubric prompt + JSON-schema validation + aggregation, about the same size as learning RAGAS's abstractions and it keeps the eval story fully owned. All 67 unit tests pass (11 new), ruff clean.
+
+**Judge (`evals/judge.py`):** scores **faithfulness** and **relevance** (1–5) on a frozen, eval-sensitive rubric. Context *precision* deliberately omitted — Tier 1 already measures retrieval against real labels, stronger than an 8B model guessing. `JudgeVerdict` (pydantic) declares `reasoning` **first** so the constrained decoder reasons before scoring. **Guardrail 3a** is two-layer: Ollama's `format=` constrained decoding enforces JSON shape, and pydantic validation enforces bounds (`1 ≤ score ≤ 5`) the schema can't; on failure it retries once with the validation error fed back into the message list (temperature is 0, so a naive retry would just repeat the bad output), then raises `JudgeError`.
+
+**Judge model:** `qwen2.5:7b`, pulled this phase — deliberately **different** from the generator (`llama3.1:8b`) so no model scores its own output. Config gained `judge_model` + temp/timeout/token guardrails (guardrail 4 at this call site too).
+
+**Guardrail 3b (`ground_citations` in `rag/generation.py`):** verifies cited chunk IDs against the retrieved set, strips hallucinated IDs from the answer text (tidying the punctuation/spacing a removed `[id]` leaves behind), and reports them separately. Wired into `main.py`'s `/query`, which gained an `ungrounded_citations` response field. Unit-tested against hallucinated-ID fixtures — it must not depend on the corpus to exercise it.
+
+**Runner (`run_evals.py`):** Tier-2, laptop-only, never CI. **Two passes** (generate all → judge all) because 6 GB VRAM fits one 7–8B model at a time; interleaving would thrash models in/out of VRAM per query. Pass 1 writes every answer to `evals/results/answers.json` (gitignored — bulky, holds chunk texts) *before* judging, so a judging failure never loses the ~52-min generation work; a `--resume-judge` flag judges those saved answers without regenerating. Committed artifact is `evals/results/generation.json` (like `retrieval.json`). Refusals are counted, not judged.
+
+**Baseline (full 300-query test split, ~52 min gen + ~21 min judge):** 109 answered, **191 refused by the generator**, 0 by guardrail 2, 0 judge failures, 0 ungrounded citations. Answered: faithfulness **3.93/5**, relevance **4.33/5**, faithfulness≥4 **67%**. The load-bearing finding — documented in EVALS.md — is that the generator refuses 64% of queries *despite* every one clearing the retrieval threshold (relevant chunks were retrieved), because SciFact "queries" are declarative **claims**, not questions. Tier 1 says retrieval works ~55%; the end-to-end system answers 36%; the gap is a generation/prompt problem, and reframing the claim in the generator prompt is flagged as the highest-leverage Phase 6 experiment.
+
+**Deferred as planned:** hosted-frontier-model re-score to calibrate 8B-judge noise (optional stretch, key via `.env` only — noted honestly in EVALS.md); full per-claim serve-time faithfulness (the expensive strong version of 3b); prompt-variant experiment to attack the refusal rate (Phase 6, run as a measured before/after).
+
 ---
 
 ## Phase 4 — Containerization
