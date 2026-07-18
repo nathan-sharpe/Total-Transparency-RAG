@@ -75,9 +75,13 @@ profile (nomic-embed-text). The two are not comparable, and the gate enforces
 that with `--expect-profile`. Tier-2 generation evals (`run_evals.py`) never
 run in CI — they need local Ollama models.
 
+CI ingests the **full corpus** (comparability beat the ~10-minute guidance;
+a run takes ~12.5 minutes, ingestion dominating). Floor calibrated 2026-07-18:
+recall@5 measured **0.7209** under the CPU profile, floor set at **0.68**.
+
 ## Status
 
-Phase 4 complete — see [ROADMAP.md](ROADMAP.md) for the full phase plan and
+Phase 5 complete — see [ROADMAP.md](ROADMAP.md) for the full phase plan and
 per-phase implementation notes.
 
 - **Phase 0** — foundations: config, schema, Postgres/pgvector via compose.
@@ -85,6 +89,7 @@ per-phase implementation notes.
 - **Phase 2** — golden set + hand-built retrieval metrics (recall@k, MRR) + guardrail 2 (no-answer threshold).
 - **Phase 3** — LLM-as-judge generation eval + guardrails 3a (schema-validated judge output) and 3b (citation grounding).
 - **Phase 4** — containerization: API Dockerfile (non-root, pinned base), compose `api` service, log persistence, backstop error webhook.
+- **Phase 5** — CI: ruff + pytest + full-corpus retrieval eval against a pgvector service container, gated on recall@5.
 
 What's runnable now:
 
@@ -97,5 +102,4 @@ python run_evals.py                  # Tier-2 generation eval (laptop-only) -> e
 ```
 
 Measured baselines and methodology live in [EVALS.md](EVALS.md). Next up:
-Phase 5 (CI with the retrieval eval gate) — workflow in place, floor
-calibration in progress.
+Phase 6 (tuning experiments and documentation polish).

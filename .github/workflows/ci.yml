@@ -25,9 +25,11 @@ concurrency:
 
 env:
   # Regression floor for recall@5 under the sentence-transformers profile.
-  # 0.0 = calibration mode: the first CI run reports the real number, then
-  # this gets set just below it (see the Phase 5 notes in ROADMAP.md).
-  RECALL5_FLOOR: "0.0"
+  # Calibrated 2026-07-18 (run 29664869933): the full-corpus CPU ingest
+  # measured recall@5 = 0.7209; the floor sits ~4 points below so it trips on
+  # real regressions (broken chunking, mangled query path), not minor drift.
+  # Recalibrate if the embedding profile, corpus, or chunk params change.
+  RECALL5_FLOOR: "0.68"
 
 jobs:
   ci:
@@ -101,7 +103,9 @@ jobs:
 
       # Full 5.2K-doc corpus (not a --limit subset): keeps the CI number on the
       # same corpus as EVALS.md methodology, differing only by embedding
-      # profile. Revisit with --limit if this step pushes CI past ~10 minutes.
+      # profile. Measured 2026-07-18: ~11 min for this step, ~12.5 min total —
+      # the roadmap's ~10-minute guidance is knowingly exceeded in exchange for
+      # comparability (a subset would also force floor recalibration).
       - name: Ingest corpus (CPU profile)
         run: python ingest.py --dataset scifact
 
