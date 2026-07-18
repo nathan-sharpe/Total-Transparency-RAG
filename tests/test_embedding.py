@@ -19,7 +19,11 @@ from rag.embedding import (
 
 
 def make_settings(**overrides) -> Settings:
-    # _env_file=None keeps the test hermetic (ignores the developer's .env).
+    # _env_file=None keeps the test hermetic against the developer's .env, but
+    # not against real environment variables — CI exports
+    # EMBEDDING_PROFILE=sentence-transformers, which would silently swap the
+    # model these Ollama-specific tests assert on. Pin the profile they test.
+    overrides.setdefault("embedding_profile", "ollama")
     return Settings(_env_file=None, postgres_user="t", postgres_password="t", **overrides)
 
 
