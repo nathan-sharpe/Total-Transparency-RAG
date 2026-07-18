@@ -1,0 +1,123 @@
+# CI: every push proves the repo still works and retrieval hasn't regressed.
+#
+# Two tiers run here:
+#   1. ruff + pytest (fast, deterministic)
+#   2. the Tier-1 retrieval eval against a real Postgres/pgvector service
+#      container, ingested with the CPU embedding profile
+#      (EMBEDDING_PROFILE=sentence-transformers) — this is where the pluggable
+#      embedder interface pays off. A gate step fails the build if recall@5
+#      drops below RECALL5_FLOOR.
+#
+# The floor is a regression tripwire calibrated with the CI profile. It is NOT
+# comparable to the portfolio numbers in EVALS.md (Ollama profile) — the gate
+# passes --expect-profile so the two can never be confused.
+
+name: CI
+
+on:
+  push:
+  workflow_dispatch:
+
+# A newer push to the same branch supersedes the running build.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Regression floor for recall@5 under the sentence-transformers profile.
+  # 0.0 = calibration mode: the first CI run reports the real number, then
+  # this gets set just below it (see the Phase 5 notes in ROADMAP.md).
+  RECALL5_FLOOR: "0.0"
+
+jobs:
+  ci:
+    runs-on: ubuntu-24.04
+
+    services:
+      db:
+        # Same pinned image as docker-compose.yml.
+        image: pgvector/pgvector:pg16
+        env:
+          # Throwaway credentials for the job-scoped service container — not
+          # secrets. Must match the job env below (services can't read job env).
+          POSTGRES_USER: rag
+          POSTGRES_PASSWORD: rag-ci
+          POSTGRES_DB: rag
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rag -d rag"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      POSTGRES_USER: rag
+      POSTGRES_PASSWORD: rag-ci
+      POSTGRES_DB: rag
+      DB_HOST: localhost
+      DB_PORT: "5432"
+      EMBEDDING_PROFILE: sentence-transformers
+      LOG_LEVEL: INFO
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-ci.txt
+
+      # The SciFact zip (rag/datasets.py) and the MiniLM weights (Hugging Face)
+      # are both immutable downloads — cache them across runs.
+      - name: Cache SciFact dataset
+        uses: actions/cache@v4
+        with:
+          path: data
+          key: beir-scifact-v1
+
+      - name: Cache embedding model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-all-MiniLM-L6-v2
+
+      - name: Install dependencies
+        run: |
+          # PyPI's Linux torch wheels bundle CUDA (several GB); this runner has
+          # no GPU. Installing the CPU wheel first means requirements-ci.txt
+          # finds its torch pin already satisfied and skips the CUDA build.
+          pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements-ci.txt
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Tests
+        run: pytest
+
+      # Full 5.2K-doc corpus (not a --limit subset): keeps the CI number on the
+      # same corpus as EVALS.md methodology, differing only by embedding
+      # profile. Revisit with --limit if this step pushes CI past ~10 minutes.
+      - name: Ingest corpus (CPU profile)
+        run: python ingest.py --dataset scifact
+
+      - name: Retrieval eval
+        run: python evals/run_retrieval.py
+
+      - name: Retrieval regression gate
+        run: >-
+          python evals/check_retrieval_gate.py
+          --floor "$RECALL5_FLOOR"
+          --expect-profile sentence-transformers
+
+      - name: Upload eval results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: retrieval-eval
+          path: evals/results/retrieval.json
+          if-no-files-found: ignore

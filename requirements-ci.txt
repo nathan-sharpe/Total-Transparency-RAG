@@ -3,4 +3,8 @@
 # pulls in torch — heavy, and only needed by CI (Phase 5) or when testing
 # the CI profile locally.
 -r requirements.txt
+# torch is pinned explicitly (not left transitive) because CI depends on it;
+# ci.yml installs this exact version from the PyTorch CPU wheel index first,
+# so the CUDA-bundled PyPI wheel is never pulled on the GPU-less runner.
+torch==2.13.0
 sentence-transformers==5.6.0

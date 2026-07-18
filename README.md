@@ -1,5 +1,7 @@
 # RAG Project
 
+[![CI](https://github.com/nathan-sharpe/RAG_Project/actions/workflows/ci.yml/badge.svg)](https://github.com/nathan-sharpe/RAG_Project/actions/workflows/ci.yml)
+
 A Python-first RAG system over the SciFact corpus: chunk → embed → ingest into
 Postgres/pgvector, retrieve + generate via local Ollama models, FastAPI on top,
 with two-layer evaluation (hand-built retrieval metrics + LLM-as-judge).
@@ -58,6 +60,21 @@ Optional: set `ERROR_WEBHOOK_URL` in `.env` to a Slack/Discord incoming
 webhook and the global exception handler posts a short alert (error id + route,
 never the stack trace) on unhandled errors.
 
+## CI
+
+Every push runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml): ruff +
+pytest, then the Tier-1 retrieval eval end to end — a Postgres/pgvector service
+container, the full SciFact corpus ingested with the CPU embedding profile
+(`EMBEDDING_PROFILE=sentence-transformers`, no GPU or Ollama in CI), and a gate
+that fails the build if recall@5 drops below `RECALL5_FLOOR`.
+
+**The CI floor is a regression tripwire, not the portfolio number.** It is
+calibrated with the CPU profile (all-MiniLM-L6-v2); the numbers that describe
+this system's quality live in [EVALS.md](EVALS.md) and come from the Ollama
+profile (nomic-embed-text). The two are not comparable, and the gate enforces
+that with `--expect-profile`. Tier-2 generation evals (`run_evals.py`) never
+run in CI — they need local Ollama models.
+
 ## Status
 
 Phase 4 complete — see [ROADMAP.md](ROADMAP.md) for the full phase plan and
@@ -80,4 +97,5 @@ python run_evals.py                  # Tier-2 generation eval (laptop-only) -> e
 ```
 
 Measured baselines and methodology live in [EVALS.md](EVALS.md). Next up:
-Phase 5 (CI with the retrieval eval gate).
+Phase 5 (CI with the retrieval eval gate) — workflow in place, floor
+calibration in progress.
