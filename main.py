@@ -39,6 +39,9 @@ logging.basicConfig(
     handlers=_log_handlers,
 )
 logger = logging.getLogger("api")
+# httpx logs every request URL at INFO — for webhook deliveries that URL is a
+# secret, so it must never reach stdout or the persisted api.log.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 def check_corpus_ready(conn: psycopg.Connection, embedder: Embedder) -> bool:
