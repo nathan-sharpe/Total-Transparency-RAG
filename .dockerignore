@@ -1,0 +1,23 @@
+# Never bake secrets into the image — config reaches the container as
+# environment variables via compose, not as a copied .env file.
+.env
+.env.*
+*.pem
+*.key
+
+# Local environment & caches
+.git
+.venv
+__pycache__/
+*.pyc
+.pytest_cache
+.ruff_cache
+
+# Corpus downloads and runtime logs live outside the image
+data/
+logs/
+evals/results/answers.json
+
+# Local tooling config
+.claude/
+.vscode/

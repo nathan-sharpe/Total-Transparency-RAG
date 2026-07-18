@@ -6,38 +6,67 @@ Everything the endpoints do is importable and callable without HTTP; eval
 scripts use the rag/ functions directly, never this server.
 """
 
+import asyncio
 import logging
 import os
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI, Request
+import psycopg
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, field_validator
 
 from rag import db
 from rag.config import get_settings
-from rag.embedding import get_embedder
+from rag.embedding import Embedder, get_embedder
 from rag.generation import NO_ANSWER_RESPONSE, generate_answer, ground_citations
+from rag.notify import notify_error
 from rag.retrieval import is_answerable, retrieve, verify_corpus_compatible
 
+# LOG_DIR (unset locally; the compose api service points it at a volume-mounted
+# directory) adds a file handler so logs persist beyond `docker compose down`.
+_log_handlers: list[logging.Handler] = [logging.StreamHandler()]
+if os.getenv("LOG_DIR"):
+    _log_dir = Path(os.environ["LOG_DIR"])
+    _log_dir.mkdir(parents=True, exist_ok=True)
+    _log_handlers.append(logging.FileHandler(_log_dir / "api.log", encoding="utf-8"))
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
     datefmt="%Y-%m-%dT%H:%M:%S",
+    handlers=_log_handlers,
 )
 logger = logging.getLogger("api")
+
+
+def check_corpus_ready(conn: psycopg.Connection, embedder: Embedder) -> bool:
+    """True once an ingested corpus exists; raises if it mismatches the embedder.
+
+    The distinction matters at startup: a *mismatched* corpus is a config error
+    and must fail fast, but an *empty* database is the normal state of a fresh
+    clone whose container starts before first ingestion — the API serves 503
+    on /query until a corpus appears instead of crash-looping.
+    """
+    if db.get_ingestion_meta(conn) is None:
+        return False
+    verify_corpus_compatible(conn, embedder)
+    return True
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
     app.state.embedder = get_embedder(settings)
-    # Fail fast at startup, not on the first query, if the DB is unreachable
-    # or was ingested with a different embedder.
     with db.connect(settings) as conn:
-        verify_corpus_compatible(conn, app.state.embedder)
-    logger.info("startup checks passed: corpus matches embedder %s", app.state.embedder.model_name)
+        app.state.corpus_ready = check_corpus_ready(conn, app.state.embedder)
+    if app.state.corpus_ready:
+        logger.info(
+            "startup checks passed: corpus matches embedder %s", app.state.embedder.model_name
+        )
+    else:
+        logger.warning("no ingested corpus yet — /query returns 503 until ingestion runs")
     yield
 
 
@@ -83,6 +112,15 @@ class QueryResponse(BaseModel):
 def query(request: QueryRequest) -> QueryResponse:
     settings = get_settings()
     with db.connect(settings) as conn:
+        if not app.state.corpus_ready:
+            # Startup found an empty database; ingestion may have run since,
+            # so re-check before refusing (no API restart needed after ingest).
+            if not check_corpus_ready(conn, app.state.embedder):
+                raise HTTPException(
+                    status_code=503,
+                    detail="no corpus ingested yet — run: python ingest.py --dataset scifact",
+                )
+            app.state.corpus_ready = True
         chunks = retrieve(conn, app.state.embedder, request.query, settings=settings)
     sources = [
         SourceChunk(chunk_id=c.chunk_id, doc_id=c.doc_id, score=c.score, text=c.text)
@@ -119,13 +157,32 @@ def health() -> dict:
     return {"status": "ok"}
 
 
+# Fire-and-forget notification tasks need a strong reference until they finish,
+# or the event loop may garbage-collect them mid-flight.
+_notify_tasks: set[asyncio.Task] = set()
+
+
 @app.exception_handler(Exception)
 async def unhandled_exception(request: Request, exc: Exception) -> JSONResponse:
     # Backstop guardrail: no stack trace ever reaches the client. The error_id
     # links the client's response to the full detail in the logs.
-    # (Phase 4 adds a webhook notification here.)
     error_id = uuid.uuid4().hex[:12]
     logger.exception("unhandled error %s on %s %s", error_id, request.method, request.url.path)
+    settings = get_settings()
+    if settings.error_webhook_url:
+        # Fire-and-forget: a slow or dead webhook must not delay the error
+        # response. The message carries the exception *class* only — the
+        # message text could contain connection details; full detail stays
+        # in the logs under the error_id.
+        task = asyncio.create_task(
+            notify_error(
+                f"[rag-api] unhandled {type(exc).__name__} — error_id={error_id} "
+                f"on {request.method} {request.url.path}",
+                settings=settings,
+            )
+        )
+        _notify_tasks.add(task)
+        task.add_done_callback(_notify_tasks.discard)
     return JSONResponse(
         status_code=500,
         content={"error": "internal server error", "error_id": error_id},

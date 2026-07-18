@@ -1,6 +1,29 @@
 services:
+  api:
+    build: .
+    restart: unless-stopped
+    # .env supplies the shared config (DB credentials etc.); the environment
+    # block then overrides only the values that differ *inside* a container,
+    # so one .env serves both host-run scripts and the container.
+    env_file: .env
+    environment:
+      DB_HOST: db                                    # compose service name, not localhost
+      OLLAMA_URL: http://host.docker.internal:11434  # Ollama stays native on the host
+      API_HOST: 0.0.0.0                              # bind beyond the container loopback
+      API_PORT: "8000"                               # container-internal port (host side maps below)
+      LOG_DIR: /app/logs
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      # Bind mount (not a named volume) for logs: low write volume, and the
+      # files stay browsable from the host. Persists beyond `compose down`.
+      - ./logs:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
+
   db:
-    # Pinned tag per project rules; extended with an `api` service in Phase 4.
+    # Pinned tag per project rules.
     image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:

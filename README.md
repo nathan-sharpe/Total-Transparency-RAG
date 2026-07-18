@@ -33,24 +33,51 @@ pytest
 ruff check .
 ```
 
+## Run the whole stack in Docker
+
+The API is containerized; Postgres/pgvector runs alongside it via compose.
+Ollama stays **native on the host** (the container reaches it at
+`host.docker.internal`), so the RTX 4050 serves models directly.
+
+```powershell
+copy env.example .env          # set POSTGRES_USER / POSTGRES_PASSWORD
+docker compose up -d --build   # start db + api (api image builds on first run)
+python ingest.py --dataset scifact   # ingest from the host into the compose db
+# open http://localhost:8000/docs and query
+```
+
+The `api` service inherits shared config from `.env` and overrides only the
+values that differ inside a container (`DB_HOST=db`,
+`OLLAMA_URL=http://host.docker.internal:11434`, `API_HOST=0.0.0.0`), so the
+same `.env` drives both host-run scripts and the container. The API logs to
+`./logs/api.log` on the host (bind-mounted, persists across `compose down`).
+If you start the stack before ingesting, `/query` returns `503` until a corpus
+exists — no restart needed after `ingest.py` runs.
+
+Optional: set `ERROR_WEBHOOK_URL` in `.env` to a Slack/Discord incoming
+webhook and the global exception handler posts a short alert (error id + route,
+never the stack trace) on unhandled errors.
+
 ## Status
 
-Phase 3 complete — see [ROADMAP.md](ROADMAP.md) for the full phase plan and
+Phase 4 complete — see [ROADMAP.md](ROADMAP.md) for the full phase plan and
 per-phase implementation notes.
 
 - **Phase 0** — foundations: config, schema, Postgres/pgvector via compose.
 - **Phase 1** — core pipeline: ingest → chunk → embed → retrieve → generate, FastAPI on top.
 - **Phase 2** — golden set + hand-built retrieval metrics (recall@k, MRR) + guardrail 2 (no-answer threshold).
 - **Phase 3** — LLM-as-judge generation eval + guardrails 3a (schema-validated judge output) and 3b (citation grounding).
+- **Phase 4** — containerization: API Dockerfile (non-root, pinned base), compose `api` service, log persistence, backstop error webhook.
 
 What's runnable now:
 
 ```powershell
+docker compose up -d --build         # run the API + db in containers (Ollama native on host)
 python ingest.py --dataset scifact   # batch-ingest the corpus
-python main.py                       # serve the API at http://localhost:8000/docs
+python main.py                       # or serve the API directly on the host at :8000/docs
 python evals/run_retrieval.py        # Tier-1 retrieval metrics -> evals/results/retrieval.json
 python run_evals.py                  # Tier-2 generation eval (laptop-only) -> evals/results/generation.json
 ```
 
 Measured baselines and methodology live in [EVALS.md](EVALS.md). Next up:
-Phase 4 (containerization).
+Phase 5 (CI with the retrieval eval gate).

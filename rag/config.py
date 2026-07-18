@@ -83,6 +83,17 @@ class Settings(BaseSettings):
     # Input guardrail (guardrail 1): enforced by the API request model
     max_query_chars: int = 2000
 
+    # Backstop notification (Phase 4): when set, the API's global exception
+    # handler posts a short alert (error id + route, never the stack trace)
+    # to this Slack/Discord incoming-webhook URL. Unset = feature off.
+    error_webhook_url: str | None = None
+    webhook_timeout_seconds: float = 5.0
+
+    # When set, the API writes its log to LOG_DIR/api.log in addition to
+    # stdout. The compose api service points this at a volume-mounted
+    # directory so logs persist beyond `docker compose down`.
+    log_dir: Path | None = None
+
     # API server (uvicorn) bind address, used by `python main.py`
     api_host: str = "127.0.0.1"
     api_port: int = 8000

@@ -30,6 +30,8 @@ build/
 data/
 
 # --- Logs & databases ---
+# logs/ is the volume-mounted directory the api container writes into.
+logs/
 *.log
 *.sqlite
 
