@@ -8,6 +8,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Each profile names an embedding model and the dimension of the vectors it
@@ -25,9 +26,10 @@ class Settings(BaseSettings):
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
 
-    # Database
+    # Database. SecretStr so a Settings repr — e.g. echoed into a pytest
+    # failure traceback — masks the value; the DSN property unwraps it.
     postgres_user: str
-    postgres_password: str
+    postgres_password: SecretStr
     postgres_db: str = "rag"
     db_host: str = "localhost"
     db_port: int = 5432
@@ -86,7 +88,8 @@ class Settings(BaseSettings):
     # Backstop notification (Phase 4): when set, the API's global exception
     # handler posts a short alert (error id + route, never the stack trace)
     # to this Slack/Discord incoming-webhook URL. Unset = feature off.
-    error_webhook_url: str | None = None
+    # SecretStr: the URL embeds the webhook token.
+    error_webhook_url: SecretStr | None = None
     webhook_timeout_seconds: float = 5.0
 
     # When set, the API writes its log to LOG_DIR/api.log in addition to
@@ -111,7 +114,7 @@ class Settings(BaseSettings):
         # libpq keyword/value format, understood by psycopg.connect().
         return (
             f"host={self.db_host} port={self.db_port} dbname={self.postgres_db} "
-            f"user={self.postgres_user} password={self.postgres_password}"
+            f"user={self.postgres_user} password={self.postgres_password.get_secret_value()}"
         )
 
 

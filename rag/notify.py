@@ -38,7 +38,9 @@ async def notify_error(
         async with httpx.AsyncClient(
             timeout=settings.webhook_timeout_seconds, transport=transport
         ) as client:
-            response = await client.post(url, json={"text": message, "content": message})
+            response = await client.post(
+                url.get_secret_value(), json={"text": message, "content": message}
+            )
             response.raise_for_status()
         logger.info("error-webhook notification delivered")
         return True

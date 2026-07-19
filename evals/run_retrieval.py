@@ -38,8 +38,10 @@ from rag.retrieval import is_answerable, retrieve, verify_corpus_compatible  # n
 logger = logging.getLogger("evals.run_retrieval")
 
 # The k values reported. RETRIEVE_K (>= max) is how many chunks we pull per
-# query so every reported cut-off is covered by one retrieval call.
-EVAL_KS = (5, 10)
+# query so every reported cut-off is covered by one retrieval call. The full
+# ladder traces the recall-vs-k curve (Phase 6 top-k experiment); the CI gate
+# only ever reads recall@5.
+EVAL_KS = (1, 2, 3, 5, 8, 10)
 RETRIEVE_K = max(EVAL_KS)
 
 DEFAULT_OUT = Path("evals/results/retrieval.json")
@@ -133,9 +135,9 @@ def main() -> None:
     args.out.write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
 
     print(f"\nRetrieval eval — {len(graded)} queries, split={args.split}")
-    print(f"  recall@5   {metrics['recall@5']:.4f}")
-    print(f"  recall@10  {metrics['recall@10']:.4f}")
-    print(f"  MRR        {metrics['mrr']:.4f}")
+    for k in EVAL_KS:
+        print(f"  recall@{k:<2} {metrics[f'recall@{k}']:.4f}")
+    print(f"  MRR       {metrics['mrr']:.4f}")
     print(f"  in-domain answerable @ thr {no_answer['threshold']:.2f}: "
           f"{no_answer['in_domain_answerable_rate']:.1%}")
     print(f"  out-of-domain refusal    @ thr {no_answer['threshold']:.2f}: "

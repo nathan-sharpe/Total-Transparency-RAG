@@ -26,3 +26,17 @@ def test_explicit_embedding_overrides_win():
     s = make_settings(embedding_profile="ollama", embedding_model="custom", embedding_dimension=123)
     assert s.resolved_embedding_model == "custom"
     assert s.resolved_embedding_dimension == 123
+
+
+def test_secrets_masked_in_repr_but_usable():
+    # A Settings repr can end up in pytest failure tracebacks; secret fields
+    # must mask there while the real values stay reachable where needed.
+    s = make_settings(
+        postgres_password="hunter2",
+        error_webhook_url="https://hooks.example/secret-token",
+    )
+    for rendered in (repr(s), str(s)):
+        assert "hunter2" not in rendered
+        assert "secret-token" not in rendered
+    assert "password=hunter2" in s.database_dsn
+    assert s.error_webhook_url.get_secret_value() == "https://hooks.example/secret-token"

@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-07-19T22:57:34+00:00",
-  "elapsed_seconds": 9.1,
+  "timestamp": "2026-07-19T23:29:16+00:00",
+  "elapsed_seconds": 9.3,
   "config": {
     "embedding_profile": "sentence-transformers",
     "embedding_model": "all-MiniLM-L6-v2",
@@ -14,7 +14,11 @@
     "split": "test"
   },
   "metrics": {
+    "recall@1": 0.4912222222222222,
+    "recall@2": 0.6098333333333333,
+    "recall@3": 0.6753333333333333,
     "recall@5": 0.751,
+    "recall@8": 0.7746111111111111,
     "recall@10": 0.7915555555555556,
     "mrr": 0.6144351851851851,
     "num_queries": 300
