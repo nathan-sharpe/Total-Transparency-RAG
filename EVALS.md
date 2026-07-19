@@ -159,6 +159,94 @@ on MiniLM's scale — the threshold-sweep experiment runs later in this phase,
 after the chunk-size sweep has settled the corpus configuration it should be
 tuned against.
 
+### 2026-07-19 — Phase 6 experiment: chunk size / overlap sweep (MiniLM profile)
+
+**Change.** Re-ingested the full corpus at three configurations bracketing the
+200/40 default — 100/20, 150/30, and 300/60 (words; overlap held at 20% of
+chunk size so granularity is the only variable) — each into its own database
+(`RAG_Project_DB_minilm_c{size}o{overlap}`), then ran the identical retrieval
+eval against each. All runs use the MiniLM profile, the winner of the embedding
+comparison above.
+
+**Hypothesis.** SciFact abstracts are short (~250 words), so the 200/40 default
+was expected to be near-optimal: finer chunks should fragment claim-evidence
+context, and coarser chunks should suffer from all-MiniLM-L6-v2's ~256-token
+input truncation (a 300-word chunk is only partially embedded — roughly the
+title plus the opening ~200 words).
+
+**Results** (300-query test split, `retrieve_k=10`; all four configs refused
+8/8 out-of-domain queries at threshold 0.60):
+
+| Config | Corpus chunks | recall@5 | recall@10 | MRR | in-domain answerable @ 0.60 |
+|---|---|---|---|---|---|
+| 100/20 | 15,153 | 0.7028 | 0.7791 | **0.6166** | 70.7% |
+| 150/30 | 10,622 | 0.7261 | 0.7757 | 0.5965 | 67.3% |
+| 200/40 (baseline) | 8,184 | 0.7209 | 0.7898 | 0.5978 | 64.0% |
+| 300/60 | 5,827 | **0.7510** | **0.7916** | 0.6144 | 61.3% |
+
+**Conclusion.** The hypothesis was wrong in an instructive way: **300/60 wins
+recall@5 by ~3 points** despite the truncation. At 5,827 chunks over 5,183
+documents, roughly nine in ten documents fit in a single chunk, so this config
+effectively retrieves whole abstracts — and its win despite the embedder seeing
+only the opening ~200 words says the openings carry most of SciFact's retrieval
+signal. Two caveats are part of the honest reading. First, a methodological
+confound: the credit rule counts k in *chunks* against *document-level* labels,
+so coarser chunking mechanically helps — five chunks from a mostly-single-chunk
+corpus span close to five distinct documents, while finer configs spend top-5
+slots on duplicate chunks of the same document. Second, truncation is invisible
+to retrieval metrics but not to generation: the generator receives the *full*
+chunk text, so a 300-word chunk retrieved by its opening still delivers its
+tail to the model — if anything an argument for, not against, the coarse
+config. The declining answerable rate at fixed 0.60 (70.7% → 61.3%) is
+score-scale dilution as chunks grow, which the threshold experiment addresses
+next. **Adopted: 300/60 as the corpus configuration for the remaining Phase 6
+experiments.**
+
+### 2026-07-19 — Phase 6 experiment: no-answer threshold sweep (both profiles)
+
+**Change.** New eval `evals/run_threshold.py` (pure sweep logic in
+`evals/threshold.py`, unit-tested in `tests/test_threshold.py`): collect every
+golden query's best-chunk similarity plus the 8 out-of-domain queries', then
+sweep thresholds 0.20–0.80 and report false-refusal rate (in-domain refused)
+against out-of-domain refusal rate, with recommended operating points at 0%,
+1%, 2%, and 5% false-refusal budgets. Run against both the adopted MiniLM
+300/60 corpus and the original nomic 200/40 corpus — the Phase 2 entry left
+0.60 as "conservative, not tuned," and the embedding comparison showed the
+scale is profile-specific.
+
+**Hypothesis.** The in-domain and out-of-domain score distributions are far
+enough apart on each profile's own scale that some threshold refuses all 8
+out-of-domain queries at ≤2% false refusals — and that threshold sits much
+lower for MiniLM than for nomic.
+
+**Results** (300 in-domain / 8 out-of-domain; source JSONs in `evals/results/`):
+
+| Profile / corpus | in-domain top scores (min / median) | OOD max | Operating points |
+|---|---|---|---|
+| MiniLM, 300/60 | 0.3413 / 0.6311 | 0.3500 | 0.34 → 0/300 false, 7/8 OOD · **0.36 → 6/300 (2%), 8/8** |
+| nomic, 200/40 | 0.6522 / 0.7949 | 0.6752 | 0.65 → 0/300 false, 7/8 OOD · **0.68 → 3/300 (1%), 8/8** |
+
+The inherited 0.60 on the MiniLM corpus would refuse 116/300 (38.7%) in-domain
+queries — confirming the profile switch must not ship without this retune.
+
+**Conclusion.** The hypothesis holds on both profiles: full out-of-domain
+refusal is purchasable for 1–2% false refusals, and the same stubborn 8th
+query (top score exactly at each profile's OOD max) is what the last few
+hundredths buy. Two honest caveats. First, n=8 out-of-domain queries means
+thresholds chosen to catch the 8th (0.36, 0.68) sit a hundredth above that
+query's score — that is fitting to a tiny set, so the zero-false-refusal
+points (0.34, 0.65) are the defensible floor and the 8/8 points a measured
+extra step, not a precise boundary. Second, the "false" refusals are nominal:
+the refused in-domain queries are exactly those whose best chunk is weakest,
+i.e. the ones retrieval most likely failed anyway — for a system whose
+downstream guardrails exist to prevent weakly-grounded answers, refusing them
+is arguably correct behavior, which is why the 2% budget is acceptable here
+where it wouldn't be at serve-critical recall. **Recommended: 0.36 for the
+MiniLM 300/60 configuration (to ship together with the profile switch), 0.68
+for nomic 200/40 if that profile stays in service.** `NO_ANSWER_THRESHOLD`
+remains an env-set value; no code default changes until the profile switch
+lands.
+
 ---
 
 # Tier 2 — Generation quality (LLM-as-judge)
