@@ -254,6 +254,30 @@ As predicted, this was packaging work, not refactoring — no module code change
 
 **Demo:** a push with a deliberately broken retrieval change goes red; the fix goes green.
 
+### Phase 5 — Implementation notes (completed 2026-07-18)
+
+Wiring, as promised — no module code changed. New: `.github/workflows/ci.yml`, `evals/check_retrieval_gate.py` (+6 unit tests, 77 total), an explicit `torch==2.13.0` pin in `requirements-ci.txt`. All green on `main` with the calibrated floor.
+
+**Workflow shape:** one job on pinned `ubuntu-24.04`; `pgvector/pgvector:pg16` as a service container (same pinned image as compose); triggers on every push (any branch — which is what lets the demo run on a throwaway branch) plus `workflow_dispatch`; a concurrency group cancels superseded runs. Caches: pip, the SciFact zip (`data/`), and the MiniLM weights (`~/.cache/huggingface`). `retrieval.json` is uploaded as a run artifact (`if: always()`, so failed runs keep their evidence).
+
+- **Torch gotcha:** PyPI's *Linux* torch wheels bundle CUDA (several GB); the workflow installs `torch==2.13.0` from the PyTorch CPU wheel index first, so `requirements-ci.txt` finds the pin satisfied and never pulls the CUDA build. (Windows wheels are CPU-only, which is why this was invisible locally.)
+
+**Gate (`evals/check_retrieval_gate.py`):** stdlib-only; parses the eval JSON, exits nonzero if recall@5 is under `--floor`. It also takes `--expect-profile` and fails on a mismatch — the tripwire (CPU profile) and the portfolio numbers (Ollama profile, EVALS.md) must never be silently compared, and that rule is now enforced in code, not prose. The floor lives as a workflow-level env var (`RECALL5_FLOOR`), so recalibrating is a one-line change.
+
+**First push went red — a real bug, found by CI on day one:** `tests/test_embedding.py`'s `make_settings(_env_file=None, ...)` was hermetic against the developer's `.env` but **not against real environment variables**; CI's job-wide `EMBEDDING_PROFILE=sentence-transformers` leaked in and swapped the model under the Ollama-specific tests. Fixed by pinning `embedding_profile="ollama"` in the helper. Lesson recorded: `Settings(_env_file=None)` does not isolate a test from `os.environ`.
+
+**Calibration (run 29664678921's fix → run 29664869933):** decided per plan — floor `0.0` first, read the number, then set it. Full-corpus CPU ingest measured **recall@5 0.7209, recall@10 0.7898, MRR 0.5978**. Two findings worth their own lines:
+- **all-MiniLM-L6-v2 beats nomic-embed-text on SciFact by ~17 points of recall@5** (0.7209 vs 0.5535). Unexpected, and it promotes the Phase 6 embedding-comparison experiment to highest-value-after-prompting. (CI numbers; the proper measured comparison still belongs to Phase 6 on the local stack.)
+- **Similarity scales are profile-specific:** at the same 0.60 threshold, MiniLM refuses 8/8 out-of-domain queries (nomic: 6/8) but only 64% of in-domain queries clear the bar (nomic: 100%). The no-answer threshold must be re-tuned per profile — noted for the Phase 6 sweep.
+
+Determinism confirmed the hard way: two independent CI runs (fresh DB, fresh ingest) reproduced recall@5 = 0.7209 *exactly*, and CI's chunk count matched the local corpus exactly (5,183 docs → 8,184 chunks; the "8,104" in the Phase 1 notes was a transcription error, corrected this phase). That reproducibility is what makes a tight floor safe.
+
+**The open question resolved — full corpus, not `--limit`:** total run is ~12.5 min (ingest 646s dominates; everything else < 2 min). The ~10-minute guidance is knowingly exceeded in exchange for comparability with EVALS.md methodology and a floor that means something; a subset would also have forced recalibration and a subset-aware credit rule. Floor set at **0.68** (~4 points under measured).
+
+**Demo executed on throwaway branch `ci-gate-demo`:** flipped retrieval's `ORDER BY` to `DESC` (returns the *least* similar chunks). ruff and all 77 unit tests passed with the break in place — the ranking SQL is structurally beyond unit tests (they cover the pure `is_answerable`) — and the gate caught it: **recall@5 0.0000, run red**. The revert went green; branch deleted. This is the phase's thesis in one run: the eval gate catches what fast checks can't.
+
+**Deferred as planned:** self-hosted runner / hosted-API judge in CI remain documented stretch goals. Also noted for Phase 6 hardening: `Settings`'s repr echoes secret fields into pytest failure tracebacks (harmless in CI, which only holds throwaway credentials) — switching password/webhook fields to pydantic `SecretStr` would mask them.
+
 ---
 
 ## Phase 6 — Tuning experiments and documentation polish
