@@ -1,0 +1,28 @@
+{
+  "timestamp": "2026-07-19T22:32:08+00:00",
+  "elapsed_seconds": 11.3,
+  "config": {
+    "embedding_profile": "sentence-transformers",
+    "embedding_model": "all-MiniLM-L6-v2",
+    "embedding_dimension": 384,
+    "chunk_size": 200,
+    "chunk_overlap": 40,
+    "top_k": 5,
+    "retrieve_k": 10,
+    "corpus_chunks": 8184,
+    "corpus_docs": 5183,
+    "split": "test"
+  },
+  "metrics": {
+    "recall@5": 0.7208888888888889,
+    "recall@10": 0.7898333333333333,
+    "mrr": 0.5977764550264549,
+    "num_queries": 300
+  },
+  "no_answer": {
+    "threshold": 0.6,
+    "in_domain_answerable_rate": 0.64,
+    "out_of_domain_refusal_rate": 1.0,
+    "num_out_of_domain": 8
+  }
+}

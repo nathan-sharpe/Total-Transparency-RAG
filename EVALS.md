@@ -112,6 +112,53 @@ Finding the point that catches those two without inducing in-domain false refusa
 is the **Phase 6 threshold-sweep experiment** (refusal rate vs. false-refusal
 rate); 0.60 is the conservative starting value, not a tuned one.
 
+### 2026-07-19 — Phase 6 experiment: embedding model comparison (all-MiniLM-L6-v2 vs nomic-embed-text)
+
+**Change.** Ingested the full SciFact corpus a second time with the
+`sentence-transformers` profile (`all-MiniLM-L6-v2`, 384-dim, CPU) into a
+separate database (`RAG_Project_DB_minilm`) alongside the untouched nomic
+corpus, then ran the identical retrieval eval against it
+(`EMBEDDING_PROFILE=sentence-transformers POSTGRES_DB=RAG_Project_DB_minilm
+python evals/run_retrieval.py --out evals/results/retrieval_minilm.json`).
+Chunking is embedder-independent, and both corpora landed at exactly 8,184
+chunks / 5,183 docs, so the embedding model is the *only* variable.
+
+**Hypothesis.** Phase 5's CI calibration run showed MiniLM at 0.7209 recall@5 —
+about 17 points above the local nomic baseline. If that transfers to the local
+stack (same corpus, same eval, only the profile changed), MiniLM should land at
+~0.72 recall@5 here too, which would be a startling result: a 384-dim CPU model
+beating the 768-dim GPU-served retrieval-specialist embedder on this corpus.
+
+**Before / after** (300-query test split, `CHUNK_SIZE=200`/`OVERLAP=40`,
+`retrieve_k=10`):
+
+| Metric | nomic-embed-text (768d) | all-MiniLM-L6-v2 (384d) | Δ |
+|---|---|---|---|
+| recall@5 | 0.5535 | **0.7209** | +16.7 pts |
+| recall@10 | 0.6024 | **0.7898** | +18.7 pts |
+| MRR | 0.4671 | **0.5978** | +13.1 pts |
+| in-domain answerable @ 0.60 | 100% | **64.0%** | −36 pts |
+| out-of-domain refused @ 0.60 | 6/8 (75%) | **8/8 (100%)** | +25 pts |
+
+**Conclusion.** The CI finding replicates exactly on the local stack: MiniLM
+wins every retrieval metric by a wide margin, and MRR ~0.60 means the first
+relevant document now typically lands at rank 1–2. The likely explanation is
+fit, not size — SciFact-style scientific claims are squarely in MiniLM's
+training distribution, and its symmetric embedding suits short
+claim-vs-abstract matching, so "bigger retrieval-specialist model" did not win
+on this corpus. That is itself the portfolio lesson: measure, don't assume.
+
+Two consequences for the remaining Phase 6 experiments. First, MiniLM becomes
+the primary profile for the subsequent sweeps (chunk size, top-k, prompts) —
+tuning against the weaker embedder would optimize the wrong system. Second,
+**the profile switch cannot ship as-is**: MiniLM's cosine-similarity scale sits
+lower than nomic's, so at the inherited 0.60 threshold the no-answer gate would
+falsely refuse ~36% of in-domain queries (nomic: 0%) even as it now catches all
+8 out-of-domain queries. The threshold is profile-specific and must be re-tuned
+on MiniLM's scale — the threshold-sweep experiment runs later in this phase,
+after the chunk-size sweep has settled the corpus configuration it should be
+tuned against.
+
 ---
 
 # Tier 2 — Generation quality (LLM-as-judge)
