@@ -247,6 +247,61 @@ for nomic 200/40 if that profile stays in service.** `NO_ANSWER_THRESHOLD`
 remains an env-set value; no code default changes until the profile switch
 lands.
 
+### 2026-07-20 — Phase 6 experiment: top-k sensitivity (recall@k vs. downstream faithfulness)
+
+**Change.** Two measurements against the adopted MiniLM 300/60 corpus. (a) The
+retrieval runner's k grid was extended to {1,2,3,5,8,10} and the recall@k curve
+recorded. (b) The full Tier-2 generation eval was run at `top_k` ∈ {3,5,8} —
+setting **both** `TOP_K` and `MAX_CONTEXT_CHUNKS`, because `retrieve()` and
+`generate_answer()` cap independently (retrieval's k and the generator's context
+cap are separate settings; moving only one would leave the generator at 5
+chunks). Sources: `evals/results/retrieval_minilm_c300o60.json`,
+`generation_minilm_c300o60_{k3,,k8}.json`.
+
+**Hypothesis.** Tier 1: recall@k rises with k but with diminishing returns. Tier
+2: more retrieved context is *not* obviously better — past the point where recall
+flattens, the extra chunks are lower-similarity and may dilute the generator's
+context, so faithfulness need not track recall.
+
+**Results — Tier 1 recall@k curve** (MiniLM 300/60, 300 queries, MRR 0.6144):
+
+| k | 1 | 2 | 3 | 5 | 8 | 10 |
+|---|---|---|---|---|---|---|
+| recall@k | 0.4912 | 0.6098 | 0.6753 | **0.7510** | 0.7746 | 0.7916 |
+
+Gains shrink sharply after k=5: +2.4 pts to k=8 and +1.7 to k=10, versus +7.6
+from k=3→5. The curve's knee is at k=5.
+
+**Results — Tier 2 faithfulness vs. k** (same corpus; generator `llama3.1:8b`,
+judge `qwen2.5:7b`, `no_answer_threshold=0.36`):
+
+| top_k | answered | gen-refused | mean faithfulness | mean relevance | faith ≥ 4 |
+|---|---|---|---|---|---|
+| 3 | 131 | 163 | 3.97 | 4.37 | 71% |
+| **5 (adopted)** | **133** | **161** | **4.01** | **4.38** | **70.7%** |
+| 8 | 162 | 132 | 3.62 | 4.03 | 58% |
+
+Guardrail-2 refusals are constant at **6** across all k, as expected:
+`is_answerable` keys off the single top-chunk score, which k does not change.
+
+**Conclusion.** The two tiers diverge exactly as hypothesized. Tier-1 recall
+keeps climbing with k; Tier-2 faithfulness peaks at k=5 and drops at k=8. The
+k=3→5 move is negligible (Δfaithfulness +0.04, within the 8B-judge noise floor).
+The k=5→8 move buys 29 more answered queries — with more chunks the generator
+finds something to say on queries it used to refuse — but at a cost that clears
+the noise floor and is corroborated across metrics: faithfulness 4.01→3.62,
+faith≥4 70.7%→58%, relevance 4.38→4.03, and the phase's **first** ungrounded
+citation. The extra chunks past k=5 are lower-similarity (the recall curve is
+already flattening), so they dilute the context and the generator grounds worse.
+"More retrieved context" and "better answers" are not the same axis, and the
+eval shows where they part company. **Adopted: `top_k=5`** (already the default) —
+it sits at the knee of the recall curve and the peak of faithfulness.
+
+The **k=5 row is the adopted-config Tier-2 baseline** (MiniLM 300/60, thr 0.36):
+133 answered, faithfulness 4.01, relevance 4.38. It **supersedes** the
+2026-07-17 nomic 200/40 baseline for every subsequent generation experiment; the
+two are not comparable (different embedder, chunk size, and threshold all moved).
+
 ---
 
 # Tier 2 — Generation quality (LLM-as-judge)
@@ -396,3 +451,60 @@ clean, so the guardrail is currently a no-op in aggregate — but it is the code
 that catches the failure when the prompt doesn't, and it is unit-tested against
 hallucinated-ID fixtures (`tests/test_generation.py`) rather than relying on the
 corpus to exercise it.
+
+### 2026-07-20 — Phase 6 experiment: generator prompt variant — claim reframing (REJECTED)
+
+**Change.** The Phase 3 baseline diagnosed the generator's high refusal rate as a
+*claims-as-questions* artifact: SciFact inputs are declarative claims, yet
+`build_user_prompt` labels each `Question:` and `SYSTEM_PROMPT` frames the task as
+*answering questions*. This variant reframes both — the input is labeled `Claim:`,
+and the system prompt tells the model it is *evaluating a scientific claim* and
+should state whether the evidence supports or contradicts it. The exact refusal
+string and the `[chunk_id]` citation rule are preserved, and the judge (which has
+its own `build_judge_prompt`, not shared with generation) is left untouched so
+faithfulness stays comparable to the baseline. Prompt changes are eval-sensitive,
+so this ran as a single measured before/after at the adopted config (MiniLM
+300/60, thr 0.36, `top_k=5`). Sources: `generation_minilm_c300o60.json` (before),
+`generation_minilm_c300o60_exp4.json` (after).
+
+**Hypothesis.** Relabeling the input as a claim to assess removes the "no question
+here → refuse" trigger and cuts the 161 generator refusals, raising the answered
+rate. **Known risk:** forcing answers on previously-refused claims could trade
+faithfulness for coverage — which the judge would catch.
+
+**Before / after** (300-query test split):
+
+| Metric | Baseline | Claim-reframed |
+|---|---|---|
+| Answered | 133 (44%) | **261 (87%)** |
+| Refused — generator | 161 | **33** |
+| Refused — guardrail 2 | 6 | 6 |
+| Mean faithfulness | **4.01** | 3.06 |
+| Mean relevance | 4.38 | 3.62 |
+| Faith ≥ 4 | 70.7% | 40.2% |
+| Ungrounded citations stripped | 0 | 2 |
+
+The refusal cut is real and large — so the claims-as-questions framing genuinely
+drove refusals — but faithfulness collapsed nearly a full point. Splitting the
+reframed run's answers by whether the baseline had refused that same query
+pinpoints why:
+
+| Group | n | mean faithfulness | faith ≥ 4 |
+|---|---|---|---|
+| Answered in **both** configs | 133 | 3.98 | 68% |
+| **Newly** answered (baseline refused these) | 128 | **2.11** | **11%** |
+
+**Conclusion. REJECTED — reverted to the baseline prompt.** The reframe leaves the
+always-answerable answers essentially untouched (3.98 vs. the baseline's 4.01) and
+does its damage entirely on the 128 queries the generator used to refuse: forced
+to answer them, it produces almost uniformly unfaithful output (2.11/5, only 11%
+reaching faith≥4). The load-bearing lesson is that **the high refusal rate was
+substantially *correct* refusal** — for those claims the retrieved abstract does
+not actually adjudicate the claim, and refusing was the faithful behavior, not a
+prompt bug. Coverage and faithfulness trade off directly here, and for a system
+whose thesis is grounded, non-hallucinated answers over a fixed scientific corpus,
+an 87% answer rate at 3.06 faithfulness is worse than a 44% rate at 4.01. This is
+the two-tier eval doing its job: a change that looks like a decisive win on the
+naive metric (refusal rate 56% → 13%) is caught as a serious quality regression,
+with the per-case split naming exactly which answers degraded. The baseline
+generator prompt stands.
