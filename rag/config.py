@@ -46,13 +46,18 @@ class Settings(BaseSettings):
         "https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/scifact.zip"
     )
 
-    # Chunking, measured in words — see rag/chunking.py for why words, not model tokens
-    chunk_size: int = 200
-    chunk_overlap: int = 40
+    # Chunking, measured in words — see rag/chunking.py for why words, not model tokens.
+    # 300/60 is the Phase 6 chunk-sweep winner on SciFact (see EVALS.md); the original
+    # baseline was 200/40.
+    chunk_size: int = 300
+    chunk_overlap: int = 60
 
     # Embedding: the profile picks sensible defaults; the explicit fields
     # override them when set (used by experiments, never required).
-    embedding_profile: Literal["ollama", "sentence-transformers"] = "ollama"
+    # "sentence-transformers" (all-MiniLM-L6-v2) is the adopted default — Phase 6
+    # experiments showed it beats the original "ollama"/nomic-embed-text profile on
+    # SciFact (see EVALS.md). Generation and judging remain local Ollama regardless.
+    embedding_profile: Literal["ollama", "sentence-transformers"] = "sentence-transformers"
     embedding_model: str | None = None
     embedding_dimension: int | None = None
 
@@ -61,9 +66,10 @@ class Settings(BaseSettings):
 
     # Guardrail 2 (no-answer path): if the best retrieved chunk's cosine
     # similarity is below this, the query flow returns an honest refusal
-    # WITHOUT calling the generator. Initial value — refined by the Phase 2
-    # out-of-domain experiment and Phase 6 threshold sweep (see EVALS.md).
-    no_answer_threshold: float = 0.6
+    # WITHOUT calling the generator. Thresholds are PROFILE-SPECIFIC: 0.36 is the
+    # Phase 6 sweep value for the adopted sentence-transformers profile (the original
+    # nomic/ollama profile tuned to 0.60). See EVALS.md.
+    no_answer_threshold: float = 0.36
 
     # Generation model + resource guardrails (guardrail 4: every LLM call site
     # has a timeout, a cap on chunks fed in, and an output token limit)

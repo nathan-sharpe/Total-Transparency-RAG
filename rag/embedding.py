@@ -106,7 +106,7 @@ class SentenceTransformersEmbedder(Embedder):
         self.model_name = settings.resolved_embedding_model
         self.dimension = settings.resolved_embedding_dimension
         self._model = SentenceTransformer(self.model_name)
-        actual = self._model.get_sentence_embedding_dimension()
+        actual = self._model.get_embedding_dimension()
         if actual != self.dimension:
             raise ValueError(
                 f"{self.model_name} embeds at {actual} dims but the active profile "
