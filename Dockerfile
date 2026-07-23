@@ -11,11 +11,11 @@ WORKDIR /app
 
 # CPU embedding profile (EMBEDDING_PROFILE=sentence-transformers) is the Phase 6
 # adopted default. torch comes from the PyTorch CPU wheel index first — exactly as
-# ci.yml does — so the multi-GB CUDA PyPI wheel is never pulled; requirements-ci.txt
+# ci.yml does — so the multi-GB CUDA PyPI wheel is never pulled; requirements-cpu.txt
 # then installs the rest (it -r's in the base requirements.txt).
-COPY requirements.txt requirements-ci.txt ./
+COPY requirements.txt requirements-cpu.txt ./
 RUN pip install --no-cache-dir torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu \
- && pip install --no-cache-dir -r requirements-ci.txt
+ && pip install --no-cache-dir -r requirements-cpu.txt
 
 # Root-only build steps end here; the app runs unprivileged.
 RUN useradd --create-home app

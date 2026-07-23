@@ -19,7 +19,7 @@ Python-first RAG system over the SciFact corpus: chunk → embed → ingest into
 ## Architecture conventions
 
 - Core logic lives in plain Python modules under `rag/`; FastAPI (`main.py`) is a thin layer. Eval scripts import `rag/` functions directly — never call the pipeline over HTTP internally.
-- Embedding goes through the pluggable embedder interface (`rag/embedding.py`): `OllamaEmbedder` (nomic-embed-text, primary) and `SentenceTransformersEmbedder` (CPU, used by CI), selected by `EMBEDDING_PROFILE`. The active model name + dimension is recorded in `ingestion_meta`; refuse query-time embedders that mismatch the ingested corpus.
+- Embedding goes through the pluggable embedder interface (`rag/embedding.py`): `SentenceTransformersEmbedder` (CPU `all-MiniLM-L6-v2`, the **shipped default** since the Phase 6 profile switch — app, container, and CI all run it; deps in `requirements-cpu.txt`) and `OllamaEmbedder` (nomic-embed-text, the alternative GPU profile), selected by `EMBEDDING_PROFILE`. The active model name + dimension is recorded in `ingestion_meta`; refuse query-time embedders that mismatch the ingested corpus.
 - Chunk IDs are deterministic: `{doc_id}::{chunk_index}`. Chunk metadata always carries the source `doc_id` (needed for golden-set credit mapping and citation grounding).
 - Retrieval functions return chunks **with similarity scores**.
 - Golden-set labels are always a **list** of relevant IDs per query, even when singleton.

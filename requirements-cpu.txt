@@ -1,0 +1,13 @@
+# Runtime deps for the CPU embedding profile (EMBEDDING_PROFILE=sentence-
+# transformers) — the Phase 6 adopted default that the app, the container, and
+# CI all run. Layered on top of the base requirements and kept separate because
+# sentence-transformers pulls in torch (heavy); the Ollama profile and the
+# tests/lint path never need it, so requirements.txt stays lean.
+-r requirements.txt
+# torch is pinned explicitly (not left transitive) because the pin is load-
+# bearing: the Dockerfile and ci.yml install this exact version from the PyTorch
+# CPU wheel index first, so the CUDA-bundled PyPI wheel is never pulled on a
+# GPU-less Linux target. (On a Windows host, PyPI's torch wheels are already
+# CPU-only, so a plain install here just works.)
+torch==2.13.0
+sentence-transformers==5.6.0

@@ -11,11 +11,40 @@ within the same config; the config snapshot is part of every result.
 
 ---
 
+## Where the system landed
+
+The changelog below is the journey; this is the destination. The Phase 6 tuning
+experiments settled the configuration the system now **ships**: the
+`all-MiniLM-L6-v2` embedding profile, `300`/`60` chunking, a `0.36` no-answer
+threshold, and top-5 retrieval — every one of those a *measured* choice, recorded
+below as a dated entry with its own before/after.
+
+| Tier | Metric (shipped config: MiniLM, 300/60, thr 0.36, k=5) | Value |
+|---|---|---|
+| 1 — retrieval | recall@5 / recall@10 / MRR | **0.7510 / 0.7916 / 0.6144** |
+| 2 — generation | answered / faithfulness / relevance | **133 of 300 / 4.01 / 4.38** |
+
+How it got there, in the order the experiments ran: `all-MiniLM-L6-v2` beat
+`nomic-embed-text` by ~17 points of recall@5 (fit, not size) → 300/60 chunking beat
+the 200/40 default → the no-answer threshold was retuned to MiniLM's similarity
+scale (0.60 → 0.36) → top-k held at 5, where the recall curve's knee meets peak
+faithfulness → a claim-reframing generator prompt was tested and **rejected**,
+because it traded correct refusals for unfaithful answers. Each step is a
+`change → hypothesis → before/after → conclusion` entry below; numbers are only
+comparable within one configuration, so every entry carries its own snapshot.
+
+---
+
 ## Corpus
 
-**SciFact** (BEIR format): 5,183 scientific-abstract documents. Chunked at
-`CHUNK_SIZE=200` / `CHUNK_OVERLAP=40` words → **8,184 chunks** (most abstracts are
-one or two chunks). Embedded with **nomic-embed-text** (768-dim) via Ollama.
+**SciFact** (BEIR format): 5,183 scientific-abstract documents. The **shipped
+configuration** chunks at `CHUNK_SIZE=300` / `CHUNK_OVERLAP=60` words → **5,827
+chunks** (~9 in 10 abstracts are a single chunk) and embeds with
+**all-MiniLM-L6-v2** (384-dim) via sentence-transformers. The 2026-07-16 baseline
+below and the early changelog entries record the starting point Phase 6 migrated
+from — **nomic-embed-text** (768-dim) via Ollama at 200/40 → 8,184 chunks — kept
+verbatim because a changelog is only honest if each entry keeps the config it was
+measured under.
 
 ## Golden set
 
@@ -334,8 +363,10 @@ mean faithfulness as noise, not a result.
 
 ## How the score is produced (methodology)
 
-Per golden query: retrieve top-5 → **guardrail 2** (refuse below the 0.60
-similarity threshold, generator never called) → generate → **guardrail 3b**
+Per golden query: retrieve top-5 → **guardrail 2** (refuse below the no-answer
+similarity threshold — profile-specific: 0.60 for the 2026-07-17 nomic baseline,
+0.36 for the adopted MiniLM config — generator never called) → generate →
+**guardrail 3b**
 (strip citations pointing outside the retrieved set) → **judge**. Refusals — the
 guardrail's *or* the generator's own — are **counted, not judged**: the judge
 scores answers, and "was this refusal correct?" is a separate question the

@@ -8,9 +8,11 @@
 #      embedder interface pays off. A gate step fails the build if recall@5
 #      drops below RECALL5_FLOOR.
 #
-# The floor is a regression tripwire calibrated with the CI profile. It is NOT
-# comparable to the portfolio numbers in EVALS.md (Ollama profile) — the gate
-# passes --expect-profile so the two can never be confused.
+# CI runs the same sentence-transformers profile the system ships, so the gate
+# guards the real retrieval path. The floor is a regression tripwire set below
+# the measured recall@5, not the portfolio figure (full methodology lives in
+# EVALS.md); the gate passes --expect-profile so an accidental profile swap
+# fails loudly instead of being silently scored.
 
 name: CI
 
@@ -25,10 +27,15 @@ concurrency:
 
 env:
   # Regression floor for recall@5 under the sentence-transformers profile.
-  # Calibrated 2026-07-18 (run 29664869933): the full-corpus CPU ingest
-  # measured recall@5 = 0.7209; the floor sits ~4 points below so it trips on
-  # real regressions (broken chunking, mangled query path), not minor drift.
-  # Recalibrate if the embedding profile, corpus, or chunk params change.
+  # CI ingests at the Phase 6 shipped config (MiniLM, 300/60 chunking, 5,827
+  # chunks) since it inherits the config.py chunk defaults. Latest full-corpus
+  # CPU ingest measured recall@5 = 0.751 (2026-07-22, run 29889385589) — the
+  # floor sits ~7 points below so it trips on real regressions (broken chunking,
+  # mangled query path), not minor drift. It was first calibrated 2026-07-18 at
+  # 0.68 against the then-default 200/40 corpus (recall@5 0.7209); the profile
+  # switch raised the measured number but the conservative floor still holds, so
+  # it was left unchanged. Recalibrate if the embedding profile, corpus, or
+  # chunk params change again.
   RECALL5_FLOOR: "0.68"
 
 jobs:
@@ -71,7 +78,7 @@ jobs:
           cache: pip
           cache-dependency-path: |
             requirements.txt
-            requirements-ci.txt
+            requirements-cpu.txt
 
       # The SciFact zip (rag/datasets.py) and the MiniLM weights (Hugging Face)
       # are both immutable downloads — cache them across runs.
@@ -90,10 +97,10 @@ jobs:
       - name: Install dependencies
         run: |
           # PyPI's Linux torch wheels bundle CUDA (several GB); this runner has
-          # no GPU. Installing the CPU wheel first means requirements-ci.txt
+          # no GPU. Installing the CPU wheel first means requirements-cpu.txt
           # finds its torch pin already satisfied and skips the CUDA build.
           pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
-          pip install -r requirements-ci.txt
+          pip install -r requirements-cpu.txt
 
       - name: Lint
         run: ruff check .

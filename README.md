@@ -3,8 +3,9 @@
 [![CI](https://github.com/nathan-sharpe/RAG_Project/actions/workflows/ci.yml/badge.svg)](https://github.com/nathan-sharpe/RAG_Project/actions/workflows/ci.yml)
 
 A Python-first RAG system over the SciFact corpus: chunk → embed → ingest into
-Postgres/pgvector, retrieve + generate via local Ollama models, FastAPI on top,
-with two-layer evaluation (hand-built retrieval metrics + LLM-as-judge).
+Postgres/pgvector, retrieve + generate with local models (sentence-transformers
+embeddings, Ollama generation), FastAPI on top, with two-layer evaluation
+(hand-built retrieval metrics + LLM-as-judge).
 
 One-sentence thesis: **this system's quality is measured, enforced, and observable.**
 
@@ -31,9 +32,10 @@ gets measured is exactly what gets served:
 
 - `rag/config.py` — every knob as an env var via pydantic-settings; secrets are `SecretStr`.
 - `rag/chunking.py` — hand-built word-window chunker; deterministic `{doc_id}::{chunk_index}` IDs.
-- `rag/embedding.py` — pluggable embedder interface: Ollama `nomic-embed-text` or CPU
-  sentence-transformers, selected by `EMBEDDING_PROFILE`. The ingesting model + dimension is
-  recorded in `ingestion_meta`, and query paths refuse a mismatched embedder.
+- `rag/embedding.py` — pluggable embedder interface selected by `EMBEDDING_PROFILE`: CPU
+  `all-MiniLM-L6-v2` (the shipped default — it beat nomic on this corpus, see EVALS.md) or
+  Ollama `nomic-embed-text`. The ingesting model + dimension is recorded in `ingestion_meta`,
+  and query paths refuse a mismatched embedder.
 - `rag/retrieval.py` — cosine top-k via pgvector; chunks always return with similarity scores.
 - `rag/generation.py` — prompt assembly + Ollama call (timeout, chunk cap, token limit) +
   citation grounding.
@@ -46,10 +48,10 @@ gets measured is exactly what gets served:
 Requires Python 3.12, Docker Desktop, and (from Phase 1) [Ollama](https://ollama.com) running natively on the host.
 
 ```powershell
-# 1. Virtual environment
+# 1. Virtual environment + dependencies
 py -3.12 -m venv .venv
 .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements-cpu.txt
 
 # 2. Configuration — copy the template and fill in real values (never commit .env)
 copy env.example .env
@@ -64,6 +66,20 @@ python -m rag.db
 pytest
 ruff check .
 ```
+
+`requirements-cpu.txt` installs the shipped default embedding profile
+(`all-MiniLM-L6-v2`, which pulls in a CPU build of torch). To use the Ollama
+embedding profile instead, install the lighter base file and select it — no
+torch is pulled:
+
+```powershell
+pip install -r requirements.txt
+$env:EMBEDDING_PROFILE = "ollama"
+```
+
+Generation runs on Ollama under either profile, so a native Ollama host is
+needed for the full ingest→retrieve→**generate** pipeline regardless; the CPU
+profile only removes Ollama from the *embedding* step (what CI relies on).
 
 ## Run the whole stack in Docker
 
@@ -98,16 +114,20 @@ container, the full SciFact corpus ingested with the CPU embedding profile
 (`EMBEDDING_PROFILE=sentence-transformers`, no GPU or Ollama in CI), and a gate
 that fails the build if recall@5 drops below `RECALL5_FLOOR`.
 
-**The CI floor is a regression tripwire, not the portfolio number.** It is
-calibrated with the CPU profile (all-MiniLM-L6-v2); the numbers that describe
-this system's quality live in [EVALS.md](EVALS.md) and come from the Ollama
-profile (nomic-embed-text). The two are not comparable, and the gate enforces
-that with `--expect-profile`. Tier-2 generation evals (`run_evals.py`) never
-run in CI — they need local Ollama models.
+CI exercises the **same `all-MiniLM-L6-v2` profile the system now ships**, so the
+gate guards the real retrieval path rather than a stand-in. The floor
+(`RECALL5_FLOOR=0.68`) is a **regression tripwire set deliberately below the
+measured recall@5** — it trips on real breakage (mangled chunking, a broken query
+path), not on minor drift, and is not the portfolio figure; the numbers that
+describe this system's quality, with full methodology, live in
+[EVALS.md](EVALS.md). The gate takes `--expect-profile sentence-transformers` and
+refuses to score a run whose ingested profile doesn't match, so a profile mix-up
+fails loudly instead of being silently compared. Tier-2 generation evals
+(`run_evals.py`) never run in CI — they need local Ollama models.
 
-CI ingests the **full corpus** (comparability beat the ~10-minute guidance;
-a run takes ~12.5 minutes, ingestion dominating). Floor calibrated 2026-07-18:
-recall@5 measured **0.7209** under the CPU profile, floor set at **0.68**.
+CI ingests the **full corpus**, not a `--limit` subset — comparability with
+EVALS.md methodology beat the ~10-minute guidance (a run is ~12.5 minutes,
+ingestion dominating).
 
 ## Guardrails
 
@@ -168,16 +188,16 @@ Choices that are right at 5k documents and how they'd change at 5M:
   progress record), which is all a single-writer corpus needs. At scale, the
   same chunk/embed/insert unit moves behind a queue (e.g. Redis/RQ or SQS)
   with N workers; idempotent doc-level transactions mean retries stay safe.
-- **Retrieval**: pgvector with no index is exact and fast at 8k chunks; at
-  millions, add an HNSW index (approximate, tunable recall) — the query code
-  doesn't change.
+- **Retrieval**: pgvector with no index is exact and fast at this corpus's ~6k
+  chunks; at millions, add an HNSW index (approximate, tunable recall) — the
+  query code doesn't change.
 - **Evals**: the golden set and judge runs are laptop-scale by design;
   scaled-up they become sampled nightly jobs with the same JSON artifacts.
 
 ## Status
 
-Phase 6 in progress — see [ROADMAP.md](ROADMAP.md) for the full phase plan and
-per-phase implementation notes.
+All seven phases (0–6) complete — see [ROADMAP.md](ROADMAP.md) for the full phase
+plan and per-phase implementation notes.
 
 - **Phase 0** — foundations: config, schema, Postgres/pgvector via compose.
 - **Phase 1** — core pipeline: ingest → chunk → embed → retrieve → generate, FastAPI on top.
@@ -185,7 +205,7 @@ per-phase implementation notes.
 - **Phase 3** — LLM-as-judge generation eval + guardrails 3a (schema-validated judge output) and 3b (citation grounding).
 - **Phase 4** — containerization: API Dockerfile (non-root, pinned base), compose `api` service, log persistence, backstop error webhook.
 - **Phase 5** — CI: ruff + pytest + full-corpus retrieval eval against a pgvector service container, gated on recall@5.
-- **Phase 6** (in progress) — measured tuning experiments: embedding-model comparison (MiniLM beats nomic by ~17 recall@5 points on SciFact), chunk-size sweep (300/60 wins), per-profile no-answer threshold sweep; generation-side experiments and final doc polish remain.
+- **Phase 6** — measured tuning experiments: `all-MiniLM-L6-v2` beat nomic-embed-text by ~17 recall@5 points on SciFact, 300/60 chunking beat the 200/40 default, the no-answer threshold was retuned per profile (0.36 for MiniLM), and top-k held at 5 (where recall's knee meets peak faithfulness); a claim-reframing generator prompt was tested and **rejected** — it traded correct refusals for unfaithful answers. The winning config ships as the default. Hybrid retrieval / reranking / nDCG is left as a future extension.
 
 What's runnable now:
 
