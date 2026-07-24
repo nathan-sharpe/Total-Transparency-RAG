@@ -1,6 +1,6 @@
-# RAG Project
+# Total Transparency RAG
 
-[![CI](https://github.com/nathan-sharpe/RAG_Project/actions/workflows/ci.yml/badge.svg)](https://github.com/nathan-sharpe/RAG_Project/actions/workflows/ci.yml)
+[![CI](https://github.com/nathan-sharpe/Total-Transparency-RAG/actions/workflows/ci.yml/badge.svg)](https://github.com/nathan-sharpe/Total-Transparency-RAG/actions/workflows/ci.yml)
 
 A Python-first RAG system over the SciFact corpus: chunk → embed → ingest into
 Postgres/pgvector, retrieve + generate with local models (sentence-transformers
