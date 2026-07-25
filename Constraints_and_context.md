@@ -6,7 +6,7 @@ Reference document compiled from planning discussions, July 2026. Intended use: 
 
 The project exists to fill identified portfolio gaps: public code footprint and Python-level engineering, formal evaluation methodology, and production operations depth. It is a public, Python-first RAG system that demonstrates the patterns behind prior client work in verifiable, open form.
 
-Strict rule: zero n8n in the implementation. Everything runs through code. The README gets one section comparing the code-first architecture to an n8n implementation and when each is the right choice, turning the n8n background into demonstrated architectural judgment rather than something being compensated for.
+Strict rule: zero n8n in the implementation. Everything runs through code, turning the n8n background into demonstrated architectural judgment rather than something being compensated for. That judgment is meant to show through the artifacts themselves — hand-built chunking/retrieval/metrics, git-diffable tuning experiments with before/after numbers, CI replaying the whole pipeline — rather than through an explicit comparison section. *(Revised 2026-07-25: the README originally carried a "code-first vs. n8n" comparison section per this rule; it was removed as out of place. See the Phase 6 notes in ROADMAP.md.)*
 
 ## Stack and constraints
 

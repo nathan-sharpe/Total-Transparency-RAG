@@ -151,34 +151,10 @@ catches this when the prompt fails?" Four layers are built:
 4. **Resource limits** — every LLM call site has a timeout, a cap on chunks
    fed in, and an output token limit; a global exception handler returns a
    reference-id JSON error (optionally alerting via webhook) instead of a
-   stack trace.
+   stack trace — the n8n error-flow pattern translated into FastAPI.
 
 Production hardening beyond this scope would add content moderation and
 prompt-injection screening in front of layer 1.
-
-## Code-first, or n8n?
-
-This system is deliberately zero-n8n — but the interesting question is *when
-each is right*, and the answer comes down to where your complexity lives.
-
-**n8n earns its keep** when the work is integration-shaped: webhook in,
-transform, route to CRM/Slack/email, done. The visual graph *is* the
-documentation, non-developers can maintain it, and a library of prebuilt nodes
-replaces glue code that would otherwise be written and babysat. A RAG
-prototype wired this way can be live in an afternoon.
-
-**Code wins** when the complexity is in the logic itself, which is exactly a
-RAG system's situation: chunking strategy, retrieval scoring, threshold gates,
-prompt assembly, and metrics all need to be *versioned, unit-tested, and
-measured*. In this repo, every eval imports the exact functions that serve
-traffic; a chunk-size experiment is a git-diffable config change with a
-before/after table in EVALS.md; CI replays the whole pipeline on every push.
-None of that has an n8n equivalent — a workflow graph can't be
-property-tested, its "diff" is a JSON blob, and its eval story is manual
-clicking. The rule of thumb: **if the value is in connecting systems, use the
-workflow tool; if the value is in the logic between the connections, write
-code.** (The error-handling pattern here — catch-all handler, short reference
-id, webhook alert — is the n8n error-flow translated into FastAPI.)
 
 ## Scaling up
 
